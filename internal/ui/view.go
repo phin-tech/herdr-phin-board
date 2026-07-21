@@ -36,6 +36,10 @@ func (m *Model) View() string {
 		return m.viewPicker()
 	}
 
+	if m.layout == layoutKanban {
+		return m.viewKanbanBoard()
+	}
+
 	var b strings.Builder
 	b.WriteString(m.viewHeader())
 	b.WriteString("\n\n")
@@ -58,15 +62,16 @@ func (m *Model) View() string {
 }
 
 func (m *Model) viewHeader() string {
+	// Count from the groups rather than the rows, so a collapsed group or a
+	// scrolled-off column still contributes.
 	var live, archived int
-	for _, r := range m.rows {
-		if r.kind != rowSpace {
-			continue
-		}
-		if r.space.Live {
-			live++
-		} else {
-			archived++
+	for _, group := range m.groups {
+		for _, sp := range group {
+			if sp.Live {
+				live++
+			} else {
+				archived++
+			}
 		}
 	}
 
@@ -113,14 +118,19 @@ func (m *Model) viewFooter() string {
 		keys.WriteString(numbered.Render(fmt.Sprintf("%d %s", i+1, st.Label)))
 	}
 
+	kanban := m.layout == layoutKanban
 	var hint string
 	switch {
 	case m.status != "":
 		hint = truncate(m.status, m.width-2)
+	case m.grabbed != "" && kanban:
+		hint = "h/l move between columns to retag · j/k reorder · enter drop"
 	case m.grabbed != "":
 		hint = "j/k move · across a group changes status · enter drop"
+	case kanban:
+		hint = "K list · v move · n note · enter jump · a archive · ? help"
 	default:
-		hint = "v move · n note · enter jump · a archive · S statuses · ? help"
+		hint = "K kanban · v move · n note · enter jump · a archive · ? help"
 	}
 	return keys.String() + "\n" + dimStyle.Render(" "+hint)
 }
@@ -262,8 +272,10 @@ func (m *Model) viewManage() string {
 
 func (m *Model) viewHelp() string {
 	rows := [][2]string{
+		{"K", "toggle between the list and the kanban columns"},
 		{"j / k", "move"},
-		{"v", "grab a row, then j/k to move it — crossing a group changes its status"},
+		{"h / l", "kanban: move between columns · list: collapse / expand"},
+		{"v", "grab a row, then move it — leaving its group changes its status"},
 		{"enter", "jump to space (reopens archived ones)"},
 		{"1-9", "send to that status, numbered along the bottom"},
 		{"s", "status picker"},

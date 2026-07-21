@@ -51,6 +51,24 @@ func (s *space) workspaceID() string {
 	return s.WorkspaceIDs[0]
 }
 
+// layout selects between the grouped list and the kanban columns. Both render
+// the same spaces and the same statuses; only the arrangement differs.
+type layout int
+
+const (
+	layoutList layout = iota
+	layoutKanban
+)
+
+const layoutKanbanName = "kanban"
+
+func (l layout) String() string {
+	if l == layoutKanban {
+		return layoutKanbanName
+	}
+	return "list"
+}
+
 type rowKind int
 
 const (
@@ -84,6 +102,13 @@ type Model struct {
 	width  int
 	height int
 
+	// Kanban keeps its own cursor: a column plus a row within that column.
+	// Columns are statuses, so moving sideways is what retags a card.
+	layout    layout
+	col       int
+	rowInCol  int
+	colOffset int
+
 	mode        mode
 	showArchive bool
 	filter      string
@@ -105,10 +130,16 @@ func New(client *herdr.Client, board *store.Board) *Model {
 	in.Prompt = ""
 	in.CharLimit = 240
 
+	l := layoutList
+	if board.Layout == layoutKanbanName {
+		l = layoutKanban
+	}
+
 	return &Model{
 		client: client,
 		board:  board,
 		input:  in,
+		layout: l,
 		width:  80,
 		height: 24,
 		events: make(chan herdr.Event, 64),
@@ -304,17 +335,64 @@ func (m *Model) rebuild() {
 	}
 
 	m.restoreCursor(selected)
+	m.restoreColumnCursor(selected)
 
-	// On first population the cursor would otherwise land on a group header,
-	// where n / s / 1-9 all silently do nothing. Start on a real space.
+	// On first population the cursor would otherwise land on a group header
+	// (or an empty column), where n / s / 1-9 all silently do nothing.
 	if !m.landed {
 		if i, ok := m.firstSpaceRow(); ok {
 			m.cursor = i
 			m.landed = true
 		}
+		if col, ok := m.firstOccupiedColumn(); ok {
+			m.col, m.rowInCol = col, 0
+			m.landed = true
+		}
 	}
 
 	m.clampCursor()
+	m.clampColumnCursor()
+}
+
+// restoreColumnCursor keeps the kanban selection on the same card across a
+// rebuild, including when a move carried it into another column.
+func (m *Model) restoreColumnCursor(key string) {
+	if key == "" {
+		return
+	}
+	for col, st := range m.board.Statuses {
+		for i, sp := range m.groups[st.ID] {
+			if sp.Key == key {
+				m.col, m.rowInCol = col, i
+				return
+			}
+		}
+	}
+}
+
+func (m *Model) firstOccupiedColumn() (int, bool) {
+	for col, st := range m.board.Statuses {
+		if len(m.groups[st.ID]) > 0 {
+			return col, true
+		}
+	}
+	return 0, false
+}
+
+func (m *Model) clampColumnCursor() {
+	if m.col >= len(m.board.Statuses) {
+		m.col = len(m.board.Statuses) - 1
+	}
+	if m.col < 0 {
+		m.col = 0
+	}
+	group := m.columnSpaces(m.col)
+	if m.rowInCol >= len(group) {
+		m.rowInCol = len(group) - 1
+	}
+	if m.rowInCol < 0 {
+		m.rowInCol = 0
+	}
 }
 
 func (m *Model) firstSpaceRow() (int, bool) {
@@ -366,13 +444,34 @@ func (m *Model) selectedKey() string {
 }
 
 func (m *Model) selected() *space {
+	if m.layout == layoutKanban {
+		group := m.columnSpaces(m.col)
+		if m.rowInCol < 0 || m.rowInCol >= len(group) {
+			return nil
+		}
+		return group[m.rowInCol]
+	}
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
 	return m.rows[m.cursor].space
 }
 
+// columnSpaces returns the spaces in one kanban column.
+func (m *Model) columnSpaces(col int) []*space {
+	if col < 0 || col >= len(m.board.Statuses) {
+		return nil
+	}
+	return m.groups[m.board.Statuses[col].ID]
+}
+
 func (m *Model) currentStatus() (store.Status, bool) {
+	if m.layout == layoutKanban {
+		if m.col < 0 || m.col >= len(m.board.Statuses) {
+			return store.Status{}, false
+		}
+		return m.board.Statuses[m.col], true
+	}
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return store.Status{}, false
 	}

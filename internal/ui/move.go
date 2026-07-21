@@ -24,37 +24,68 @@ func (m *Model) toggleGrab() {
 	m.status = "moving — j/k to move, across a group to change status, enter to drop"
 }
 
-// moveGrabbed shifts the held space by one position, crossing into the
-// neighbouring status group when it runs off the end of its own.
+// moveGrabbed shifts the held space by one position along the axis that
+// reorders it. In the list that is vertical, and running off either end carries
+// the row into the neighbouring status. In kanban the columns are the statuses,
+// so vertical movement only ever reorders within a column.
 func (m *Model) moveGrabbed(delta int) {
-	sp := m.selected()
-	if sp == nil || sp.Key != m.grabbed {
-		// The held row scrolled out from under us (a workspace closed, say).
-		m.grabbed = ""
+	sp := m.heldSpace()
+	if sp == nil {
 		return
 	}
+	if m.reorderWithin(sp, delta) {
+		return
+	}
+	if m.layout == layoutList {
+		m.crossBoundary(sp, delta, delta > 0)
+	}
+}
 
+// moveGrabbedAcross carries the held card into the neighbouring column. This is
+// the kanban equivalent of crossing a group boundary.
+func (m *Model) moveGrabbedAcross(delta int) {
+	if sp := m.heldSpace(); sp != nil {
+		m.crossBoundary(sp, delta, true)
+	}
+}
+
+func (m *Model) heldSpace() *space {
+	sp := m.selected()
+	if sp == nil || sp.Key != m.grabbed {
+		// The held row moved out from under us (a workspace closed, say).
+		m.grabbed = ""
+		return nil
+	}
+	return sp
+}
+
+// reorderWithin swaps the space with its neighbour, reporting whether there was
+// a neighbour to swap with.
+func (m *Model) reorderWithin(sp *space, delta int) bool {
 	group := m.groups[sp.StatusID]
 	idx := indexOfSpace(group, sp.Key)
 	if idx < 0 {
-		return
+		return false
+	}
+	target := idx + delta
+	if target < 0 || target >= len(group) {
+		return false
 	}
 
-	if target := idx + delta; target >= 0 && target < len(group) {
-		reordered := make([]*space, len(group))
-		copy(reordered, group)
-		reordered[idx], reordered[target] = reordered[target], reordered[idx]
-		m.applyOrder(reordered)
-		m.save()
-		m.rebuild()
-		return
-	}
-	m.crossBoundary(sp, delta)
+	reordered := make([]*space, len(group))
+	copy(reordered, group)
+	reordered[idx], reordered[target] = reordered[target], reordered[idx]
+	m.applyOrder(reordered)
+	m.save()
+	m.rebuild()
+	return true
 }
 
-// crossBoundary moves a space into the adjacent status group, entering at the
-// edge it came from so the motion reads as continuous.
-func (m *Model) crossBoundary(sp *space, delta int) {
+// crossBoundary moves a space into the adjacent status group. atTop places it
+// at the head of the destination: in the list that is the edge it entered from,
+// so the motion reads as continuous; in kanban a card always lands at the top
+// of its new column, where it is easy to find.
+func (m *Model) crossBoundary(sp *space, delta int, atTop bool) {
 	next := m.statusIndex(sp.StatusID) + delta
 	if next < 0 || next >= len(m.board.Statuses) {
 		m.status = "already at the end of the board"
@@ -63,10 +94,8 @@ func (m *Model) crossBoundary(sp *space, delta int) {
 	dest := m.board.Statuses[next]
 	sourceID := sp.StatusID
 
-	// Build the destination group with the space inserted at the near edge:
-	// moving down enters at the top, moving up enters at the bottom.
 	destGroup := make([]*space, 0, len(m.groups[dest.ID])+1)
-	if delta > 0 {
+	if atTop {
 		destGroup = append(destGroup, sp)
 		destGroup = append(destGroup, m.groups[dest.ID]...)
 	} else {

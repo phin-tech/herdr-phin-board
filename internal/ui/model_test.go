@@ -66,8 +66,21 @@ func spaceRows(m *Model) []*space {
 	return out
 }
 
+// selectSpace moves the cursor onto a space, using whichever cursor the active
+// layout actually reads.
 func selectSpace(t *testing.T, m *Model, key string) {
 	t.Helper()
+	if m.layout == layoutKanban {
+		for col, st := range m.board.Statuses {
+			for i, sp := range m.groups[st.ID] {
+				if sp.Key == key {
+					m.col, m.rowInCol = col, i
+					return
+				}
+			}
+		}
+		t.Fatalf("card %q is not on the board", key)
+	}
 	for i, r := range m.rows {
 		if r.kind == rowSpace && r.space.Key == key {
 			m.cursor = i
@@ -657,5 +670,199 @@ func TestFooterListsNumberedStatuses(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("footer is missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func kanbanBoard(t *testing.T) *Model {
+	t.Helper()
+	m := threeInTodo(t)
+	m.toggleLayout()
+	if m.layout != layoutKanban {
+		t.Fatal("K did not switch to kanban")
+	}
+	return m
+}
+
+func TestLayoutTogglePersists(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	board, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(nil, board)
+	m.width, m.height = 100, 30
+	send(t, m, liveWorkspaces())
+	send(t, m, key("K"))
+
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Layout != "kanban" {
+		t.Fatalf("layout not persisted: %q", reloaded.Layout)
+	}
+	if New(nil, reloaded).layout != layoutKanban {
+		t.Fatal("board did not reopen in kanban")
+	}
+}
+
+// Toggling views must keep you looking at the same space.
+func TestLayoutToggleKeepsSelection(t *testing.T) {
+	m := threeInTodo(t)
+	target := labelsIn(m, "todo")[1]
+	selectSpace(t, m, "/tmp/"+target)
+	send(t, m, key("3")) // Waiting, so the column is not the first one
+
+	send(t, m, key("K"))
+	if sp := m.selected(); sp == nil || sp.Label != target {
+		t.Fatalf("kanban lost the selection: %+v", sp)
+	}
+	send(t, m, key("K"))
+	if sp := m.selected(); sp == nil || sp.Label != target {
+		t.Fatalf("list lost the selection: %+v", sp)
+	}
+}
+
+func TestKanbanColumnNavigation(t *testing.T) {
+	m := kanbanBoard(t)
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+	send(t, m, key("3")) // Waiting is column index 2
+
+	send(t, m, key("h"))
+	if m.col != 1 {
+		t.Fatalf("h moved to column %d, want 1", m.col)
+	}
+	send(t, m, key("l"))
+	if m.col != 2 {
+		t.Fatalf("l moved to column %d, want 2", m.col)
+	}
+	// Columns stop at the edges rather than wrapping.
+	for i := 0; i < 10; i++ {
+		send(t, m, key("l"))
+	}
+	if m.col != len(m.board.Statuses)-1 {
+		t.Fatalf("column cursor escaped: %d", m.col)
+	}
+}
+
+func TestKanbanGrabAcrossColumnsRetags(t *testing.T) {
+	m := kanbanBoard(t)
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+
+	send(t, m, key("v"))
+	send(t, m, key("l"))
+
+	if got := m.board.Entries["/tmp/"+target].Status; got != "in_progress" {
+		t.Fatalf("status is %q, want in_progress", got)
+	}
+	// The card lands at the top of its new column and stays selected.
+	if got := labelsIn(m, "in_progress"); len(got) == 0 || got[0] != target {
+		t.Fatalf("card did not land at the top: %v", got)
+	}
+	if sp := m.selected(); sp == nil || sp.Label != target {
+		t.Fatalf("selection did not follow the card: %+v", sp)
+	}
+
+	send(t, m, key("h"))
+	if got := m.board.Entries["/tmp/"+target].Status; got != "todo" {
+		t.Fatalf("h did not move it back: %q", got)
+	}
+}
+
+// Vertical movement in kanban reorders within a column and must never retag,
+// since the columns are the statuses.
+func TestKanbanVerticalMoveNeverRetags(t *testing.T) {
+	m := kanbanBoard(t)
+	before := labelsIn(m, "todo")
+	selectSpace(t, m, "/tmp/"+before[2]) // the last card in the column
+
+	send(t, m, key("v"))
+	send(t, m, key("j")) // off the bottom
+
+	if got := m.board.Entries["/tmp/"+before[2]].Status; got != "" && got != "todo" {
+		t.Fatalf("vertical move retagged the card to %q", got)
+	}
+	if got := labelsIn(m, "todo"); len(got) != 3 {
+		t.Fatalf("todo lost a card: %v", got)
+	}
+
+	// Moving up still reorders inside the column.
+	send(t, m, key("k"))
+	want := []string{before[0], before[2], before[1]}
+	if got := labelsIn(m, "todo"); !equal(got, want) {
+		t.Fatalf("order is %v, want %v", got, want)
+	}
+}
+
+func TestKanbanNumberKeysWork(t *testing.T) {
+	m := kanbanBoard(t)
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+
+	send(t, m, key("3"))
+	if got := m.board.Entries["/tmp/"+target].Status; got != "waiting" {
+		t.Fatalf("status is %q, want waiting", got)
+	}
+	if sp := m.selected(); sp == nil || sp.Label != target {
+		t.Fatalf("selection did not follow into the Waiting column: %+v", sp)
+	}
+}
+
+// An empty column has nothing selected; the actions must decline rather than
+// operate on a stale card.
+func TestKanbanEmptyColumnSelectsNothing(t *testing.T) {
+	m := kanbanBoard(t)
+	m.col, m.rowInCol = 3, 0 // Done, empty
+	m.clampColumnCursor()
+
+	if sp := m.selected(); sp != nil {
+		t.Fatalf("empty column selected %+v", sp)
+	}
+	send(t, m, key("n"))
+	if m.mode == modeNote {
+		t.Fatal("note editor opened with no card selected")
+	}
+}
+
+func TestKanbanRendersAllColumns(t *testing.T) {
+	m := kanbanBoard(t)
+	out := m.View()
+	for _, st := range m.board.Statuses {
+		if !strings.Contains(out, st.Label) {
+			t.Fatalf("kanban is missing the %q column:\n%s", st.Label, out)
+		}
+	}
+}
+
+// Narrow terminals cannot show every column at once; the selected one must
+// still be on screen.
+func TestKanbanScrollsToSelectedColumn(t *testing.T) {
+	m := kanbanBoard(t)
+	m.width = 40
+	m.col = len(m.board.Statuses) - 1
+
+	out := m.View()
+	width := m.columnWidth()
+	visible := m.visibleColumns(width)
+	if m.col < m.colOffset || m.col >= m.colOffset+visible {
+		t.Fatalf("selected column %d is off screen (offset %d, visible %d)", m.col, m.colOffset, visible)
+	}
+	if !strings.Contains(out, m.board.Statuses[m.col].Label) {
+		t.Fatalf("selected column not rendered:\n%s", out)
+	}
+}
+
+func TestWrapSplitsLongWords(t *testing.T) {
+	lines := wrap("supercalifragilistic short", 8)
+	for _, l := range lines {
+		if len(l) > 8 {
+			t.Fatalf("line %q exceeds the width", l)
+		}
+	}
+	if strings.Join(lines, "") == "" {
+		t.Fatal("wrap dropped the text")
 	}
 }

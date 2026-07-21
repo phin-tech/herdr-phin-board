@@ -96,20 +96,21 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		m.toggleGrab()
 
+	case "K":
+		m.toggleLayout()
+
 	case "j", "down":
 		if m.grabbed != "" {
 			m.moveGrabbed(1)
 			return m, m.syncTokens()
 		}
-		m.cursor++
-		m.clampCursor()
+		m.moveCursor(1)
 	case "k", "up":
 		if m.grabbed != "" {
 			m.moveGrabbed(-1)
 			return m, m.syncTokens()
 		}
-		m.cursor--
-		m.clampCursor()
+		m.moveCursor(-1)
 	case "g", "home":
 		m.cursor = 0
 		m.clampCursor()
@@ -132,15 +133,30 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.openSelected()
 
-	case " ", "tab", "h", "l", "left", "right":
-		if m.grabbed != "" {
+	case "h", "left", "l", "right":
+		delta := 1
+		if key == "h" || key == "left" {
+			delta = -1
+		}
+		// Sideways is column movement in kanban, and collapse in the list --
+		// there is nothing to move between when the groups are stacked.
+		if m.layout == layoutKanban {
+			if m.grabbed != "" {
+				m.moveGrabbedAcross(delta)
+				return m, m.syncTokens()
+			}
+			m.col += delta
+			m.rowInCol = 0
+			m.clampColumnCursor()
 			return m, nil
 		}
-		if st, ok := m.currentStatus(); ok {
-			m.board.ToggleCollapsed(st.ID)
-			m.save()
-			m.rebuild()
+		return m.toggleCurrentGroup()
+
+	case " ", "tab":
+		if m.layout == layoutKanban {
+			return m, nil
 		}
+		return m.toggleCurrentGroup()
 
 	case "s":
 		if !m.requireSpace() {
@@ -420,6 +436,49 @@ func (m *Model) forgetSelected() (tea.Model, tea.Cmd) {
 	m.status = fmt.Sprintf("forgot %s", sp.Label)
 	m.rebuild()
 	return m, cmd
+}
+
+// moveCursor steps the selection, in whichever layout is active.
+func (m *Model) moveCursor(delta int) {
+	if m.layout == layoutKanban {
+		m.rowInCol += delta
+		m.clampColumnCursor()
+		return
+	}
+	m.cursor += delta
+	m.clampCursor()
+}
+
+func (m *Model) toggleCurrentGroup() (tea.Model, tea.Cmd) {
+	if m.grabbed != "" {
+		return m, nil
+	}
+	if st, ok := m.currentStatus(); ok {
+		m.board.ToggleCollapsed(st.ID)
+		m.save()
+		m.rebuild()
+	}
+	return m, nil
+}
+
+// toggleLayout switches between the list and the kanban columns, keeping the
+// same space selected and remembering the choice for next time.
+func (m *Model) toggleLayout() {
+	selected := m.selectedKey()
+
+	if m.layout == layoutKanban {
+		m.layout = layoutList
+	} else {
+		m.layout = layoutKanban
+	}
+	m.board.Layout = m.layout.String()
+	m.save()
+
+	m.rebuild()
+	m.restoreCursor(selected)
+	m.restoreColumnCursor(selected)
+	m.clampCursor()
+	m.clampColumnCursor()
 }
 
 // requireSpace guards the actions that only make sense on a space row. Landing

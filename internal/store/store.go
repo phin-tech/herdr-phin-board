@@ -39,10 +39,13 @@ type Entry struct {
 
 // Board is the whole persisted file.
 type Board struct {
-	Version   int              `json:"version"`
-	Statuses  []Status         `json:"statuses"`
-	Collapsed []string         `json:"collapsed"`
-	Entries   map[string]Entry `json:"entries"`
+	Version   int      `json:"version"`
+	Statuses  []Status `json:"statuses"`
+	Collapsed []string `json:"collapsed"`
+	// Layout is "list" or "kanban". Persisted so the board reopens in
+	// whichever view you were last using.
+	Layout  string           `json:"layout,omitempty"`
+	Entries map[string]Entry `json:"entries"`
 
 	path string
 }

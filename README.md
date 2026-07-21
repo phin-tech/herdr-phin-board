@@ -27,6 +27,27 @@ Statuses are yours: rename them, reorder them, invent new ones. The dim right
 column is Herdr's agent state — a hint only. It never groups, sorts, or
 overrides anything you set.
 
+`K` swaps the same board into kanban columns, one per status:
+
+```
+ Board                                                                          5 live · archive hidden
+
+ Todo 0                   In Progress 2            Waiting 2                Done 1
+ ──────────────────────── ──────────────────────── ──────────────────────── ────────────────────────
+ —                          dev-stream             ❯ api-gateway              billing
+                            ·idle                    waiting on Dave re:      ·idle
+                                                     API key rotation
+                            herdr-board              ·idle
+                            ·working
+                                                     docs-site
+                                                     vendor SLA response,
+                                                     chased 2026-07-18
+                                                     ·blocked
+```
+
+A column *is* a status, so `v` then `h`/`l` walks a card sideways to retag it,
+and `j`/`k` reorders within the column. The view you were last in is remembered.
+
 ## Install
 
 ```sh
@@ -69,8 +90,10 @@ so the badge is correct even if you never open the board.
 
 | Key | |
 |---|---|
+| `K` | toggle between the list and the kanban columns |
 | `j` / `k` | move |
-| `v` | grab the row, then `j`/`k` walks it — crossing a group changes its status |
+| `h` / `l` | kanban: move between columns · list: collapse / expand a group |
+| `v` | grab the row, then move it — leaving its group changes its status |
 | `enter` | jump to the space (reopens archived ones at their old path) |
 | `1`–`9` | send to that status; the numbers are listed along the bottom |
 | `s` | status picker |
