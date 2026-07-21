@@ -35,7 +35,9 @@ case "$(uname -m)" in
 esac
 
 name="herdr-phin-board-${os}-${arch}"
-base="https://github.com/${repo}/releases/latest/download"
+# The rolling build is a prerelease, and /releases/latest/ skips those, so the
+# tag is named explicitly.
+base="https://github.com/${repo}/releases/download/latest"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
