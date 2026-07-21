@@ -24,6 +24,7 @@ const (
 	modeManage
 	modeManageAdd
 	modeManageRename
+	modeDetail
 	modeHelp
 )
 
@@ -109,7 +110,10 @@ type Model struct {
 	rowInCol  int
 	colOffset int
 
-	mode        mode
+	mode mode
+	// prevMode is where an input or picker returns when it closes, so opening
+	// one from the kanban modal does not drop you back onto the board.
+	prevMode    mode
 	showArchive bool
 	filter      string
 	input       textinput.Model

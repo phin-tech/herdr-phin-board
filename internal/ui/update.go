@@ -59,6 +59,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePickKey(msg)
 	case modeManage:
 		return m.handleManageKey(msg)
+	case modeDetail:
+		return m.handleDetailKey(msg)
 	case modeNote, modeFilter, modeManageAdd, modeManageRename:
 		return m.handleInputKey(msg)
 	case modeHelp:
@@ -98,6 +100,19 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "K":
 		m.toggleLayout()
+
+	case "d":
+		// The list has room alongside for a pane; kanban's columns already use
+		// the full width, so there it opens over the board.
+		if m.layout == layoutKanban {
+			if !m.requireSpace() {
+				return m, nil
+			}
+			m.mode = modeDetail
+			return m, nil
+		}
+		m.board.HideDetail = !m.board.HideDetail
+		m.save()
 
 	case "j", "down":
 		if m.grabbed != "" {
@@ -216,7 +231,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handlePickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc", "q":
-		m.mode = modeNormal
+		m.mode = m.inputParentMode()
 	case "j", "down":
 		if m.manageIdx < len(m.board.Statuses)-1 {
 			m.manageIdx++
@@ -226,11 +241,11 @@ func (m *Model) handlePickKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.manageIdx--
 		}
 	case "enter":
-		if m.manageIdx < len(m.board.Statuses) {
-			m.mode = modeNormal
+		selected := m.manageIdx < len(m.board.Statuses)
+		m.mode = m.inputParentMode()
+		if selected {
 			return m.applyStatus(m.board.Statuses[m.manageIdx])
 		}
-		m.mode = modeNormal
 	}
 	return m, nil
 }
@@ -296,6 +311,52 @@ func (m *Model) handleManageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleDetailKey drives the kanban modal. It keeps the actions you would
+// reach for while reading a note, so you do not have to close it first.
+func (m *Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch key := msg.String(); key {
+	case "esc", "q", "d":
+		m.mode = modeNormal
+
+	case "n":
+		if sp := m.selected(); sp != nil {
+			m.prevMode = modeDetail
+			m.mode = modeNote
+			m.input.SetValue(sp.Note)
+			m.input.CursorEnd()
+			m.input.Focus()
+		}
+
+	case "s":
+		if sp := m.selected(); sp != nil {
+			m.prevMode = modeDetail
+			m.mode = modeStatusPick
+			m.manageIdx = m.statusIndex(sp.StatusID)
+		}
+
+	case "j", "down", "k", "up":
+		// Browse without closing: the modal follows the selection.
+		delta := 1
+		if key == "k" || key == "up" {
+			delta = -1
+		}
+		m.moveCursor(delta)
+
+	case "enter":
+		m.mode = modeNormal
+		return m.openSelected()
+
+	default:
+		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
+			idx := int(key[0] - '1')
+			if idx < len(m.board.Statuses) && m.selected() != nil {
+				return m.applyStatus(m.board.Statuses[idx])
+			}
+		}
+	}
+	return m, nil
+}
+
 func (m *Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
@@ -352,11 +413,17 @@ func (m *Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// inputParentMode is where an input or picker returns to when it closes --
+// normally the board, but the kanban modal reopens so reading is uninterrupted.
 func (m *Model) inputParentMode() mode {
 	switch m.mode {
 	case modeManageAdd, modeManageRename:
 		return modeManage
 	default:
+		if m.prevMode == modeDetail {
+			m.prevMode = modeNormal
+			return modeDetail
+		}
 		return modeNormal
 	}
 }

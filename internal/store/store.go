@@ -44,8 +44,11 @@ type Board struct {
 	Collapsed []string `json:"collapsed"`
 	// Layout is "list" or "kanban". Persisted so the board reopens in
 	// whichever view you were last using.
-	Layout  string           `json:"layout,omitempty"`
-	Entries map[string]Entry `json:"entries"`
+	Layout string `json:"layout,omitempty"`
+	// HideDetail turns off the detail pane in the list view. Stored inverted
+	// so the zero value means "show it", which is the default.
+	HideDetail bool             `json:"hide_detail,omitempty"`
+	Entries    map[string]Entry `json:"entries"`
 
 	path string
 }

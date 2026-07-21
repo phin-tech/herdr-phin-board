@@ -866,3 +866,172 @@ func TestWrapSplitsLongWords(t *testing.T) {
 		t.Fatal("wrap dropped the text")
 	}
 }
+
+func TestDetailPaneShowsFullNote(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 110, 24
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	long := "waiting on Dave re: API key rotation, he is back Thursday and will re-issue then"
+	m.board.SetStatus("/tmp/api", "waiting", "api")
+	m.board.SetNote("/tmp/api", long)
+	m.rebuild()
+	selectSpace(t, m, "/tmp/api")
+
+	out := m.View()
+	if m.detailPaneWidth() == 0 {
+		t.Fatal("the pane should be on by default at this width")
+	}
+	// The row truncates the note; the pane must not.
+	for _, word := range []string{"rotation,", "Thursday", "re-issue"} {
+		if !strings.Contains(out, word) {
+			t.Fatalf("pane dropped %q from the note:\n%s", word, out)
+		}
+	}
+	if !strings.Contains(out, "live") {
+		t.Fatalf("pane is missing the workspace state:\n%s", out)
+	}
+}
+
+// The pane follows the cursor with no keypress: that is the whole point of it
+// being automatic.
+func TestDetailPaneTracksCursor(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 110, 24
+	send(t, m, liveWorkspaces())
+	m.board.SetStatus("/tmp/api", "todo", "api")
+	m.board.SetNote("/tmp/api", "note-for-api")
+	m.board.SetStatus("/tmp/web", "todo", "web")
+	m.board.SetNote("/tmp/web", "note-for-web")
+	m.rebuild()
+
+	selectSpace(t, m, "/tmp/api")
+	if out := m.View(); !strings.Contains(out, "note-for-api") {
+		t.Fatalf("pane is not showing the selected space:\n%s", out)
+	}
+	selectSpace(t, m, "/tmp/web")
+	if out := m.View(); !strings.Contains(out, "note-for-web") {
+		t.Fatalf("pane did not follow the cursor:\n%s", out)
+	}
+}
+
+func TestDetailPaneTogglesAndPersists(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	board, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(nil, board)
+	m.width, m.height = 110, 24
+	send(t, m, liveWorkspaces())
+
+	send(t, m, key("d"))
+	if m.detailPaneWidth() != 0 {
+		t.Fatal("d did not hide the pane")
+	}
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reloaded.HideDetail {
+		t.Fatal("the preference was not persisted")
+	}
+}
+
+// A narrow terminal must not be split; the list needs the room more.
+func TestDetailPaneHiddenWhenNarrow(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.width = 60
+	if m.detailPaneWidth() != 0 {
+		t.Fatal("the pane should stand down on a narrow terminal")
+	}
+	if out := m.View(); !strings.Contains(out, "Board") {
+		t.Fatalf("narrow list did not render:\n%s", out)
+	}
+}
+
+// In kanban the columns already use the width, so detail is a modal instead.
+func TestKanbanDetailIsAModal(t *testing.T) {
+	m := kanbanBoard(t)
+	m.width, m.height = 110, 24
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+	m.board.SetNote("/tmp/"+target, "modal-note-text")
+	m.rebuild()
+	selectSpace(t, m, "/tmp/"+target)
+
+	if m.detailPaneWidth() != 0 {
+		t.Fatal("kanban must not reserve a side pane")
+	}
+
+	send(t, m, key("d"))
+	if m.mode != modeDetail {
+		t.Fatal("d did not open the modal")
+	}
+	out := m.View()
+	if !strings.Contains(out, "modal-note-text") {
+		t.Fatalf("modal is missing the note:\n%s", out)
+	}
+	if !strings.Contains(out, "╭") {
+		t.Fatalf("modal is not drawn as a box:\n%s", out)
+	}
+
+	send(t, m, key("esc"))
+	if m.mode != modeNormal {
+		t.Fatal("esc did not close the modal")
+	}
+}
+
+// Editing from the modal should return to the modal, not dump you on the board.
+func TestModalNoteEditReturnsToModal(t *testing.T) {
+	m := kanbanBoard(t)
+	m.width, m.height = 110, 24
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+
+	send(t, m, key("d"))
+	send(t, m, key("n"))
+	if m.mode != modeNote {
+		t.Fatal("n did not open the note editor")
+	}
+	m.input.SetValue("edited from the modal")
+	send(t, m, key("enter"))
+
+	if m.mode != modeDetail {
+		t.Fatalf("returned to mode %v, want the modal", m.mode)
+	}
+	if got := m.board.Entries["/tmp/"+target].Note; got != "edited from the modal" {
+		t.Fatalf("note not saved: %q", got)
+	}
+}
+
+func TestModalBrowsesWithoutClosing(t *testing.T) {
+	m := kanbanBoard(t)
+	m.width, m.height = 110, 24
+	selectSpace(t, m, "/tmp/"+labelsIn(m, "todo")[0])
+
+	send(t, m, key("d"))
+	send(t, m, key("j"))
+	if m.mode != modeDetail {
+		t.Fatal("j closed the modal")
+	}
+	if sp := m.selected(); sp == nil || sp.Label != labelsIn(m, "todo")[1] {
+		t.Fatalf("modal did not move to the next card: %+v", sp)
+	}
+}
+
+// The modal's rule must fit inside the border rather than wrapping.
+func TestModalRuleFitsTheBox(t *testing.T) {
+	m := kanbanBoard(t)
+	m.width, m.height = 110, 24
+	selectSpace(t, m, "/tmp/"+labelsIn(m, "todo")[0])
+	send(t, m, key("d"))
+
+	for _, line := range strings.Split(m.View(), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "──") && !strings.Contains(line, "│") {
+			t.Fatalf("the rule escaped the box: %q", line)
+		}
+	}
+}

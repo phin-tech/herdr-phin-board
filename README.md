@@ -48,6 +48,13 @@ overrides anything you set.
 A column *is* a status, so `v` then `h`/`l` walks a card sideways to retag it,
 and `j`/`k` reorders within the column. The view you were last in is remembered.
 
+Rows can only ever show a truncated note, so the list keeps a detail pane
+alongside. It tracks the cursor with no keypress needed, and shows the note in
+full along with the path, workspace, and when the status last changed. `d` hides
+it if you want the room back. In kanban the columns already use the width, so
+`d` opens the same detail as a modal instead — and you can keep browsing with
+`j`/`k`, or edit with `n`, without closing it.
+
 ## Install
 
 ```sh
@@ -59,7 +66,7 @@ Then bind a key in `~/.config/herdr/config.toml`:
 
 ```toml
 [[keys.command]]
-key = "prefix+b"
+key = "prefix+k"
 type = "plugin_action"
 command = "board.open"
 description = "Space board"
@@ -91,6 +98,7 @@ so the badge is correct even if you never open the board.
 | Key | |
 |---|---|
 | `K` | toggle between the list and the kanban columns |
+| `d` | list: show or hide the detail pane · kanban: open the detail modal |
 | `j` / `k` | move |
 | `h` / `l` | kanban: move between columns · list: collapse / expand a group |
 | `v` | grab the row, then move it — leaving its group changes its status |

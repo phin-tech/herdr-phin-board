@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"os"
 	"strings"
 
@@ -34,6 +35,8 @@ func (m *Model) View() string {
 		return m.viewManage()
 	case modeStatusPick:
 		return m.viewPicker()
+	case modeDetail:
+		return m.viewDetailModal()
 	}
 
 	if m.layout == layoutKanban {
@@ -44,16 +47,37 @@ func (m *Model) View() string {
 	b.WriteString(m.viewHeader())
 	b.WriteString("\n\n")
 
-	visible := m.listHeight()
-	end := m.offset + visible
-	if end > len(m.rows) {
-		end = len(m.rows)
-	}
+	height := m.listHeight()
+	left := make([]string, height)
+	end := min(m.offset+height, len(m.rows))
 	for i := m.offset; i < end; i++ {
-		b.WriteString(m.renderRow(i))
-		b.WriteString("\n")
+		left[i-m.offset] = m.renderRow(i)
 	}
-	for i := end - m.offset; i < visible; i++ {
+
+	paneWidth := m.detailPaneWidth()
+	if paneWidth == 0 {
+		for _, line := range left {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString(m.viewFooter())
+		return b.String()
+	}
+
+	// The pane tracks the cursor, so it always describes what you are looking
+	// at without needing to open anything.
+	inner := paneWidth - 3
+	right := m.detailLines(m.selected(), inner)
+	body := m.bodyWidth()
+
+	for i := 0; i < height; i++ {
+		cell := ""
+		if i < len(right) {
+			cell = right[i]
+		}
+		b.WriteString(padCell(truncateStyled(left[i], body-1), body-1))
+		b.WriteString(dimStyle.Render("│ "))
+		b.WriteString(strings.TrimRight(cell, " "))
 		b.WriteString("\n")
 	}
 
@@ -128,7 +152,9 @@ func (m *Model) viewFooter() string {
 	case m.grabbed != "":
 		hint = "j/k move · across a group changes status · enter drop"
 	case kanban:
-		hint = "K list · v move · n note · enter jump · a archive · ? help"
+		hint = "K list · d detail · v move · n note · enter jump · ? help"
+	case m.board.HideDetail:
+		hint = "K kanban · d detail · v move · n note · enter jump · ? help"
 	default:
 		hint = "K kanban · v move · n note · enter jump · a archive · ? help"
 	}
@@ -189,13 +215,15 @@ func (m *Model) renderRow(i int) string {
 	}
 
 	hint := agentHint(sp)
-	room := m.width - 3 - 22 - lipgloss.Width(hint) - 2
+	// Rows share the width with the detail pane when it is open.
+	body := m.rowWidth()
+	room := body - 3 - 22 - lipgloss.Width(hint) - 2
 	if room < 8 {
 		room = 8
 	}
 
 	line := prefix + nameStyled + " " + detailStyle.Render(truncate(detail, room))
-	return joinEnds(line, dimStyle.Render(hint+" "), m.width)
+	return joinEnds(line, dimStyle.Render(hint+" "), body)
 }
 
 // agentHint is the dim secondary signal. It never groups or sorts anything --
@@ -273,6 +301,7 @@ func (m *Model) viewManage() string {
 func (m *Model) viewHelp() string {
 	rows := [][2]string{
 		{"K", "toggle between the list and the kanban columns"},
+		{"d", "list: show or hide the detail pane · kanban: open the detail modal"},
 		{"j / k", "move"},
 		{"h / l", "kanban: move between columns · list: collapse / expand"},
 		{"v", "grab a row, then move it — leaving its group changes its status"},
@@ -321,6 +350,15 @@ func truncate(s string, n int) string {
 		return string(r[:1])
 	}
 	return string(r[:min(len(r), n-1)]) + "…"
+}
+
+// truncateStyled clips an already-styled string without cutting through an
+// escape sequence, which plain slicing would do.
+func truncateStyled(s string, width int) string {
+	if width <= 0 || lipgloss.Width(s) <= width {
+		return s
+	}
+	return ansi.Truncate(s, width, "")
 }
 
 // joinEnds puts left and right on one line, right-aligned to width.
