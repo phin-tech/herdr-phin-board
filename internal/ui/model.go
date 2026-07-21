@@ -40,6 +40,7 @@ type space struct {
 
 	StatusID  string
 	Note      string
+	Order     int
 	UpdatedAt time.Time
 }
 
@@ -72,6 +73,11 @@ type Model struct {
 
 	live []herdr.Workspace
 	rows []row
+	// groups holds every space per status in display order, including those
+	// hidden by a collapsed group -- grab-moves need the full picture.
+	groups map[string][]*space
+	// grabbed is the key of the space being moved with j/k, if any.
+	grabbed string
 
 	cursor int
 	offset int
@@ -229,6 +235,7 @@ func (m *Model) rebuild() {
 		}
 		sp.StatusID = entry.Status
 		sp.Note = entry.Note
+		sp.Order = entry.Order
 		sp.UpdatedAt = entry.UpdatedAt
 		if sp.Label == "" {
 			sp.Label = entry.Label
@@ -256,6 +263,14 @@ func (m *Model) rebuild() {
 	for _, group := range byStatus {
 		sort.Slice(group, func(i, j int) bool {
 			a, b := group[i], group[j]
+			// Rows the user arranged by hand come first, in their chosen order.
+			// Everything else falls back to recency, then name.
+			if (a.Order > 0) != (b.Order > 0) {
+				return a.Order > 0
+			}
+			if a.Order > 0 && b.Order > 0 && a.Order != b.Order {
+				return a.Order < b.Order
+			}
 			if a.Live != b.Live {
 				return a.Live
 			}
@@ -265,6 +280,7 @@ func (m *Model) rebuild() {
 			return strings.ToLower(a.Label) < strings.ToLower(b.Label)
 		})
 	}
+	m.groups = byStatus
 
 	m.rows = m.rows[:0]
 	for _, st := range m.board.Statuses {
@@ -401,7 +417,7 @@ func (m *Model) clampCursor() {
 }
 
 func (m *Model) listHeight() int {
-	h := m.height - 4 // title, blank, footer, padding
+	h := m.height - 5 // title, blank, two footer lines, padding
 	if h < 3 {
 		h = 3
 	}

@@ -18,6 +18,7 @@ var (
 	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	keyStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
 	focusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	grabStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
 )
 
 // View renders the board.
@@ -97,10 +98,31 @@ func (m *Model) viewFooter() string {
 		return keyStyle.Render(" filter: ") + m.input.View()
 	}
 
-	if m.status != "" {
-		return dimStyle.Render(" " + truncate(m.status, m.width-2))
+	// The numbered statuses are the fastest way to file something, so show the
+	// actual mapping rather than a generic "1-9".
+	var keys strings.Builder
+	keys.WriteString(" ")
+	for i, st := range m.board.Statuses {
+		if i >= 9 {
+			break
+		}
+		if i > 0 {
+			keys.WriteString(dimStyle.Render("  "))
+		}
+		numbered := lipgloss.NewStyle().Foreground(lipgloss.Color(st.Color))
+		keys.WriteString(numbered.Render(fmt.Sprintf("%d %s", i+1, st.Label)))
 	}
-	return dimStyle.Render(" 1-9 status · s pick · n note · enter jump · a archive · S statuses · ? help")
+
+	var hint string
+	switch {
+	case m.status != "":
+		hint = truncate(m.status, m.width-2)
+	case m.grabbed != "":
+		hint = "j/k move · across a group changes status · enter drop"
+	default:
+		hint = "v move · n note · enter jump · a archive · S statuses · ? help"
+	}
+	return keys.String() + "\n" + dimStyle.Render(" "+hint)
 }
 
 func (m *Model) renderRow(i int) string {
@@ -126,16 +148,24 @@ func (m *Model) renderRow(i int) string {
 	}
 
 	sp := r.space
+	held := sp.Key == m.grabbed
+
 	prefix := "   "
-	if selected {
+	switch {
+	case held:
+		prefix = grabStyle.Render(" ▌ ")
+	case selected:
 		prefix = cursorStyle.Render(" ❯ ")
 	}
 
 	name := sp.Label
 	nameStyled := labelStyle.Render(pad(name, 22))
-	if !sp.Live {
+	switch {
+	case held:
+		nameStyled = grabStyle.Render(pad(name, 22))
+	case !sp.Live:
 		nameStyled = archivedStyle.Render(pad(name, 22))
-	} else if sp.Focused {
+	case sp.Focused:
 		nameStyled = focusStyle.Render(pad(name, 22))
 	}
 
@@ -233,8 +263,9 @@ func (m *Model) viewManage() string {
 func (m *Model) viewHelp() string {
 	rows := [][2]string{
 		{"j / k", "move"},
+		{"v", "grab a row, then j/k to move it — crossing a group changes its status"},
 		{"enter", "jump to space (reopens archived ones)"},
-		{"1-9", "set status by position"},
+		{"1-9", "send to that status, numbered along the bottom"},
 		{"s", "status picker"},
 		{"n", "edit note — who or what you are waiting on"},
 		{"space", "collapse / expand group"},

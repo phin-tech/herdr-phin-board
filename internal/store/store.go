@@ -28,8 +28,12 @@ type Status struct {
 type Entry struct {
 	Status string `json:"status"`
 	// Note carries the external context -- who you are waiting on and why.
-	Note      string    `json:"note,omitempty"`
-	Label     string    `json:"label,omitempty"`
+	Note  string `json:"note,omitempty"`
+	Label string `json:"label,omitempty"`
+	// Order is a manual 1-based rank within the status group, written when the
+	// user drags a row. Zero means unranked: those sort after ranked rows by
+	// recency, so the board stays useful before anything is arranged by hand.
+	Order     int       `json:"order,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
@@ -176,6 +180,18 @@ func (b *Board) SetStatus(key, statusID, label string) {
 	if label != "" {
 		e.Label = label
 	}
+	b.Entries[key] = e
+}
+
+// SetOrder records a manual rank. It deliberately leaves UpdatedAt alone:
+// rearranging rows is not the same as working on something, and UpdatedAt is
+// the fallback sort for everything still unranked.
+func (b *Board) SetOrder(key string, order int) {
+	e, ok := b.Entries[key]
+	if !ok {
+		return
+	}
+	e.Order = order
 	b.Entries[key] = e
 }
 

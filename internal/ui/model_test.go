@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -434,4 +435,227 @@ func TestCursorHandlesEmptyBoard(t *testing.T) {
 	}
 	send(t, m, key("n"))
 	send(t, m, key("1"))
+}
+
+func threeInTodo(t *testing.T) *Model {
+	t.Helper()
+	m := newTestModel(t)
+	send(t, m, workspacesMsg{
+		{ID: "w1", Label: "alpha", Cwd: "/tmp/alpha", AgentStatus: "idle"},
+		{ID: "w2", Label: "beta", Cwd: "/tmp/beta", AgentStatus: "idle"},
+		{ID: "w3", Label: "gamma", Cwd: "/tmp/gamma", AgentStatus: "idle"},
+	})
+	return m
+}
+
+func labelsIn(m *Model, statusID string) []string {
+	var out []string
+	for _, sp := range m.groups[statusID] {
+		out = append(out, sp.Label)
+	}
+	return out
+}
+
+func equal(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestGrabReordersWithinGroup(t *testing.T) {
+	m := threeInTodo(t)
+	before := labelsIn(m, "todo")
+	if len(before) != 3 {
+		t.Fatalf("setup: want 3 spaces, got %v", before)
+	}
+
+	selectSpace(t, m, "/tmp/"+strings.ToLower(before[0]))
+	send(t, m, key("v"))
+	if m.grabbed == "" {
+		t.Fatal("v did not grab the row")
+	}
+	send(t, m, key("j"))
+
+	want := []string{before[1], before[0], before[2]}
+	if got := labelsIn(m, "todo"); !equal(got, want) {
+		t.Fatalf("order is %v, want %v", got, want)
+	}
+	// The cursor stays on the row being moved, or a second j would move a
+	// different one.
+	if sp := m.selected(); sp == nil || sp.Label != before[0] {
+		t.Fatalf("cursor left the grabbed row: %+v", sp)
+	}
+}
+
+// The reordering has to survive a reload, otherwise the row springs back.
+func TestManualOrderPersists(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	board, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(nil, board)
+	m.width, m.height = 100, 30
+	send(t, m, workspacesMsg{
+		{ID: "w1", Label: "alpha", Cwd: "/tmp/alpha"},
+		{ID: "w2", Label: "beta", Cwd: "/tmp/beta"},
+	})
+	first := labelsIn(m, "todo")[0]
+
+	selectSpace(t, m, "/tmp/"+first)
+	send(t, m, key("v"))
+	send(t, m, key("j"))
+
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2 := New(nil, reloaded)
+	m2.width, m2.height = 100, 30
+	send(t, m2, workspacesMsg{
+		{ID: "w1", Label: "alpha", Cwd: "/tmp/alpha"},
+		{ID: "w2", Label: "beta", Cwd: "/tmp/beta"},
+	})
+	if got := labelsIn(m2, "todo"); got[len(got)-1] != first {
+		t.Fatalf("manual order did not survive reload: %v", got)
+	}
+}
+
+// Moving off the bottom of a group carries the row into the next status.
+func TestGrabCrossesBoundaryDown(t *testing.T) {
+	m := threeInTodo(t)
+	last := labelsIn(m, "todo")[2]
+	selectSpace(t, m, "/tmp/"+last)
+
+	send(t, m, key("v"))
+	send(t, m, key("j"))
+
+	if got := m.board.Entries["/tmp/"+last].Status; got != "in_progress" {
+		t.Fatalf("status is %q, want in_progress", got)
+	}
+	// It enters at the top, since it arrived from above.
+	if got := labelsIn(m, "in_progress"); len(got) != 1 || got[0] != last {
+		t.Fatalf("in_progress is %v, want [%s]", got, last)
+	}
+	if m.grabbed == "" {
+		t.Fatal("the row was dropped on crossing a boundary")
+	}
+}
+
+func TestGrabCrossesBoundaryUp(t *testing.T) {
+	m := threeInTodo(t)
+	first := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+first)
+	// Park it in Waiting, then walk it back up into In Progress.
+	send(t, m, key("3"))
+	send(t, m, key("v"))
+	send(t, m, key("k"))
+
+	if got := m.board.Entries["/tmp/"+first].Status; got != "in_progress" {
+		t.Fatalf("status is %q, want in_progress", got)
+	}
+}
+
+// A row must never vanish because it was moved into a folded group.
+func TestGrabIntoCollapsedGroupExpandsIt(t *testing.T) {
+	m := threeInTodo(t)
+	if !m.board.IsCollapsed("done") {
+		t.Fatal("setup: done should start collapsed")
+	}
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+	send(t, m, key("3")) // Waiting, which sits directly above Done
+	selectSpace(t, m, "/tmp/"+target)
+
+	// Grab it and walk it down across the boundary into collapsed Done.
+	send(t, m, key("v"))
+	send(t, m, key("j"))
+
+	if got := m.board.Entries["/tmp/"+target].Status; got != "done" {
+		t.Fatalf("status is %q, want done", got)
+	}
+	if m.board.IsCollapsed("done") {
+		t.Fatal("target group stayed collapsed, hiding the moved row")
+	}
+	if m.selected() == nil {
+		t.Fatal("the moved row is not visible")
+	}
+}
+
+func TestGrabStopsAtTheEnds(t *testing.T) {
+	m := threeInTodo(t)
+	first := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+first)
+	send(t, m, key("v"))
+	send(t, m, key("k")) // already in the first status, at the top
+
+	if got := m.board.Entries["/tmp/"+first]; got.Status != "" && got.Status != "todo" {
+		t.Fatalf("row escaped off the top into %q", got.Status)
+	}
+	if len(labelsIn(m, "todo")) != 3 {
+		t.Fatalf("todo lost a row: %v", labelsIn(m, "todo"))
+	}
+}
+
+func TestGrabBlockedWhileFiltering(t *testing.T) {
+	m := threeInTodo(t)
+	m.filter = "alpha"
+	m.rebuild()
+
+	send(t, m, key("v"))
+	if m.grabbed != "" {
+		t.Fatal("grabbing while filtered would reorder against hidden rows")
+	}
+	if m.status == "" {
+		t.Fatal("no explanation given")
+	}
+}
+
+func TestGrabToggleAndDrop(t *testing.T) {
+	m := threeInTodo(t)
+	selectSpace(t, m, "/tmp/"+labelsIn(m, "todo")[0])
+
+	send(t, m, key("v"))
+	send(t, m, key("v"))
+	if m.grabbed != "" {
+		t.Fatal("v did not drop the row")
+	}
+	send(t, m, key("v"))
+	send(t, m, key("enter"))
+	if m.grabbed != "" {
+		t.Fatal("enter did not drop the row")
+	}
+}
+
+// Numbers must keep working, in grab mode too.
+func TestNumberKeySendsToStatusWhileGrabbed(t *testing.T) {
+	m := threeInTodo(t)
+	target := labelsIn(m, "todo")[0]
+	selectSpace(t, m, "/tmp/"+target)
+
+	send(t, m, key("v"))
+	send(t, m, key("3"))
+
+	if got := m.board.Entries["/tmp/"+target].Status; got != "waiting" {
+		t.Fatalf("status is %q, want waiting", got)
+	}
+}
+
+// The footer must name the statuses, not just say "1-9".
+func TestFooterListsNumberedStatuses(t *testing.T) {
+	m := threeInTodo(t)
+	out := m.View()
+	for i, st := range m.board.Statuses {
+		want := fmt.Sprintf("%d %s", i+1, st.Label)
+		if !strings.Contains(out, want) {
+			t.Fatalf("footer is missing %q:\n%s", want, out)
+		}
+	}
 }

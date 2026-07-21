@@ -70,8 +70,9 @@ so the badge is correct even if you never open the board.
 | Key | |
 |---|---|
 | `j` / `k` | move |
+| `v` | grab the row, then `j`/`k` walks it — crossing a group changes its status |
 | `enter` | jump to the space (reopens archived ones at their old path) |
-| `1`–`9` | set status by position |
+| `1`–`9` | send to that status; the numbers are listed along the bottom |
 | `s` | status picker |
 | `n` | edit the note — who or what you're waiting on |
 | `space` | collapse / expand a group |
@@ -99,6 +100,12 @@ Two axes are deliberately kept apart:
 Everything lives in one file, `$HERDR_PLUGIN_STATE_DIR/board.json` — status
 definitions and per-directory entries together, written atomically. It's
 hand-editable if you'd rather.
+
+Rows sort by most-recently-touched until you arrange a column by hand with `v`.
+After that the arrangement sticks: hand-ranked rows hold their positions at the
+top of the group, and anything you haven't touched falls in below them by
+recency. Rearranging a row doesn't count as working on it, so it won't disturb
+that fallback ordering.
 
 Several workspaces open on the same directory share one row, because a status
 belongs to the project rather than the window.

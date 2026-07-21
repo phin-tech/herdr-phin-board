@@ -81,6 +81,11 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key := msg.String(); key {
 	case "q", "esc":
+		if m.grabbed != "" {
+			m.grabbed = ""
+			m.status = ""
+			return m, nil
+		}
 		if m.filter != "" {
 			m.filter = ""
 			m.rebuild()
@@ -88,10 +93,21 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.quit()
 
+	case "v":
+		m.toggleGrab()
+
 	case "j", "down":
+		if m.grabbed != "" {
+			m.moveGrabbed(1)
+			return m, m.syncTokens()
+		}
 		m.cursor++
 		m.clampCursor()
 	case "k", "up":
+		if m.grabbed != "" {
+			m.moveGrabbed(-1)
+			return m, m.syncTokens()
+		}
 		m.cursor--
 		m.clampCursor()
 	case "g", "home":
@@ -108,9 +124,18 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.clampCursor()
 
 	case "enter":
+		// While holding a row, enter means "drop it here" rather than "jump".
+		if m.grabbed != "" {
+			m.grabbed = ""
+			m.status = ""
+			return m, nil
+		}
 		return m.openSelected()
 
 	case " ", "tab", "h", "l", "left", "right":
+		if m.grabbed != "" {
+			return m, nil
+		}
 		if st, ok := m.currentStatus(); ok {
 			m.board.ToggleCollapsed(st.ID)
 			m.save()
