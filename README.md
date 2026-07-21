@@ -1,0 +1,120 @@
+# herdr-board
+
+A [Herdr](https://herdr.dev) plugin: a status board over your spaces, in a popup,
+on a key.
+
+Herdr's own space list tells you what Herdr knows — label, panes, agent state.
+This adds the part only you know: what you've actually started, what's finished,
+and what's parked because you're waiting on a person or something outside the
+machine.
+
+```
+ Board                                                              4 live · archive hidden
+
+ ▾ Todo (0)
+ ▾ In Progress (2)
+   dev-stream             ~/src/github.com/phin-tech/dev-stream                    ·working
+   herdr-board            ~/src/github.com/phin-tech/herdr-board                      ·idle
+❯▾ Waiting (2)
+   api-gateway            waiting on Dave re: API key                                 ·idle
+   docs-site              vendor SLA response, chased 2026-07-18                   ·blocked
+ ▸ Done (0)
+
+ 1-9 status · s pick · n note · enter jump · a archive · S statuses · ? help
+```
+
+Statuses are yours: rename them, reorder them, invent new ones. The dim right
+column is Herdr's agent state — a hint only. It never groups, sorts, or
+overrides anything you set.
+
+## Install
+
+```sh
+git clone https://github.com/phin-tech/herdr-board
+herdr plugin link ./herdr-board
+```
+
+Then bind a key in `~/.config/herdr/config.toml`:
+
+```toml
+[[keys.command]]
+key = "prefix+b"
+type = "plugin_action"
+command = "board.open"
+description = "Space board"
+```
+
+and reload: `herdr server reload-config`.
+
+Requires Go on `PATH` (the plugin builds itself on install) and Herdr 0.7.4+.
+
+## Status in the Spaces sidebar
+
+The board mirrors each status into the workspace's `status` metadata token, so
+it can show in Herdr's native Spaces sidebar too. Add `$status` to a row:
+
+```toml
+[ui.sidebar.spaces]
+rows = [
+  ["state_icon", "workspace"],
+  ["$status"],
+]
+```
+
+Tokens don't survive a server restart, but the board file does — a
+`workspace.created` hook re-applies the stored status whenever a space appears,
+so the badge is correct even if you never open the board.
+
+## Keys
+
+| Key | |
+|---|---|
+| `j` / `k` | move |
+| `enter` | jump to the space (reopens archived ones at their old path) |
+| `1`–`9` | set status by position |
+| `s` | status picker |
+| `n` | edit the note — who or what you're waiting on |
+| `space` | collapse / expand a group |
+| `a` | show or hide archived spaces |
+| `/` | filter by name, path, or note |
+| `S` | manage statuses: add, rename, reorder, delete |
+| `x` | forget the selected space |
+| `r` | refresh |
+| `q` | quit |
+
+## How state works
+
+Herdr workspace ids (`w4`, `w5`) are reassigned every session, so they're
+useless as a durable key. Statuses are keyed by **canonical directory path**
+instead: a status set today is still on the project when you reopen it next
+week, in a new session, with a different workspace id.
+
+Two axes are deliberately kept apart:
+
+- **Status** is yours, and it groups the board. A live space marked Done sits in
+  the Done group.
+- **Liveness** is Herdr's, and it decides main list vs archive. Close a space in
+  Herdr and it moves behind `a` with its status intact; `enter` reopens it.
+
+Everything lives in one file, `$HERDR_PLUGIN_STATE_DIR/board.json` — status
+definitions and per-directory entries together, written atomically. It's
+hand-editable if you'd rather.
+
+Several workspaces open on the same directory share one row, because a status
+belongs to the project rather than the window.
+
+```sh
+herdr-board sync    # re-apply stored statuses to workspace tokens
+herdr-board prune   # forget entries whose directory no longer exists
+```
+
+## Development
+
+```sh
+go test ./...
+go build -o bin/herdr-board ./cmd/herdr-board
+./bin/herdr-board          # runs against the live session via $HERDR_SOCKET_PATH
+```
+
+Run the binary directly from any pane inside a Herdr session — it doesn't need
+to be installed as a plugin to work, which makes for a fast inner loop.

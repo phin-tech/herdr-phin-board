@@ -1,0 +1,306 @@
+package ui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+var (
+	titleStyle    = lipgloss.NewStyle().Bold(true)
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	noteStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("179"))
+	labelStyle    = lipgloss.NewStyle()
+	archivedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	cursorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("212")).Bold(true)
+	errStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
+	keyStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
+	focusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+)
+
+// View renders the board.
+func (m *Model) View() string {
+	if m.quitting {
+		return ""
+	}
+
+	switch m.mode {
+	case modeHelp:
+		return m.viewHelp()
+	case modeManage, modeManageAdd, modeManageRename:
+		return m.viewManage()
+	case modeStatusPick:
+		return m.viewPicker()
+	}
+
+	var b strings.Builder
+	b.WriteString(m.viewHeader())
+	b.WriteString("\n\n")
+
+	visible := m.listHeight()
+	end := m.offset + visible
+	if end > len(m.rows) {
+		end = len(m.rows)
+	}
+	for i := m.offset; i < end; i++ {
+		b.WriteString(m.renderRow(i))
+		b.WriteString("\n")
+	}
+	for i := end - m.offset; i < visible; i++ {
+		b.WriteString("\n")
+	}
+
+	b.WriteString(m.viewFooter())
+	return b.String()
+}
+
+func (m *Model) viewHeader() string {
+	var live, archived int
+	for _, r := range m.rows {
+		if r.kind != rowSpace {
+			continue
+		}
+		if r.space.Live {
+			live++
+		} else {
+			archived++
+		}
+	}
+
+	left := titleStyle.Render(" Board")
+	if m.filter != "" {
+		left += dimStyle.Render(fmt.Sprintf("  /%s", m.filter))
+	}
+
+	right := fmt.Sprintf("%d live", live)
+	if m.showArchive {
+		right += fmt.Sprintf(" · %d archived", archived)
+	} else {
+		right += " · archive hidden"
+	}
+	right = dimStyle.Render(right + " ")
+
+	return joinEnds(left, right, m.width)
+}
+
+func (m *Model) viewFooter() string {
+	if m.err != nil {
+		return errStyle.Render(" " + truncate(m.err.Error(), m.width-2))
+	}
+
+	switch m.mode {
+	case modeNote:
+		return keyStyle.Render(" note: ") + m.input.View()
+	case modeFilter:
+		return keyStyle.Render(" filter: ") + m.input.View()
+	}
+
+	if m.status != "" {
+		return dimStyle.Render(" " + truncate(m.status, m.width-2))
+	}
+	return dimStyle.Render(" 1-9 status · s pick · n note · enter jump · a archive · S statuses · ? help")
+}
+
+func (m *Model) renderRow(i int) string {
+	r := m.rows[i]
+	selected := i == m.cursor
+
+	switch r.kind {
+	case rowEmpty:
+		return dimStyle.Render("  no spaces yet — open a workspace in Herdr and it appears here")
+
+	case rowHeader:
+		arrow := "▾"
+		if m.board.IsCollapsed(r.status.ID) && m.filter == "" {
+			arrow = "▸"
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(r.status.Color)).Bold(true)
+		line := fmt.Sprintf("%s %s", arrow, r.status.Label)
+		out := " " + style.Render(line) + dimStyle.Render(fmt.Sprintf(" (%d)", r.count))
+		if selected {
+			return cursorStyle.Render("❯") + out[1:]
+		}
+		return out
+	}
+
+	sp := r.space
+	prefix := "   "
+	if selected {
+		prefix = cursorStyle.Render(" ❯ ")
+	}
+
+	name := sp.Label
+	nameStyled := labelStyle.Render(pad(name, 22))
+	if !sp.Live {
+		nameStyled = archivedStyle.Render(pad(name, 22))
+	} else if sp.Focused {
+		nameStyled = focusStyle.Render(pad(name, 22))
+	}
+
+	// The note is the point of the "waiting" status, so it wins the middle
+	// column whenever there is one; otherwise show where the space lives.
+	detail := abbreviate(sp.Key)
+	detailStyle := dimStyle
+	if sp.Note != "" {
+		detail = sp.Note
+		detailStyle = noteStyle
+	}
+
+	hint := agentHint(sp)
+	room := m.width - 3 - 22 - lipgloss.Width(hint) - 2
+	if room < 8 {
+		room = 8
+	}
+
+	line := prefix + nameStyled + " " + detailStyle.Render(truncate(detail, room))
+	return joinEnds(line, dimStyle.Render(hint+" "), m.width)
+}
+
+// agentHint is the dim secondary signal. It never groups or sorts anything --
+// the board tracks the user's own work, not the agent's.
+func agentHint(sp *space) string {
+	if !sp.Live {
+		return "offline"
+	}
+	switch sp.AgentStatus {
+	case "working", "blocked", "done", "idle":
+		return "·" + sp.AgentStatus
+	default:
+		return ""
+	}
+}
+
+func (m *Model) viewPicker() string {
+	var b strings.Builder
+	name := "space"
+	if sp := m.selected(); sp != nil {
+		name = sp.Label
+	}
+	b.WriteString(titleStyle.Render(" Set status") + dimStyle.Render("  "+name) + "\n\n")
+
+	for i, st := range m.board.Statuses {
+		cursor := "   "
+		if i == m.manageIdx {
+			cursor = cursorStyle.Render(" ❯ ")
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(st.Color))
+		b.WriteString(cursor + dimStyle.Render(fmt.Sprintf("%d ", i+1)) + style.Render(st.Label) + "\n")
+	}
+	b.WriteString("\n" + dimStyle.Render(" enter select · esc cancel"))
+	return b.String()
+}
+
+func (m *Model) viewManage() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" Statuses") + dimStyle.Render("  order here is the order on the board") + "\n\n")
+
+	for i, st := range m.board.Statuses {
+		cursor := "   "
+		if i == m.manageIdx {
+			cursor = cursorStyle.Render(" ❯ ")
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(st.Color))
+		count := 0
+		for _, e := range m.board.Entries {
+			if e.Status == st.ID {
+				count++
+			}
+		}
+		noun := "spaces"
+		if count == 1 {
+			noun = "space"
+		}
+		b.WriteString(cursor + style.Render(pad(st.Label, 24)) + dimStyle.Render(fmt.Sprintf("%d %s", count, noun)) + "\n")
+	}
+
+	b.WriteString("\n")
+	switch m.mode {
+	case modeManageAdd:
+		b.WriteString(keyStyle.Render(" new status: ") + m.input.View())
+	case modeManageRename:
+		b.WriteString(keyStyle.Render(" rename to: ") + m.input.View())
+	default:
+		b.WriteString(dimStyle.Render(" a add · r rename · d delete · J/K reorder · esc back"))
+		if m.status != "" {
+			b.WriteString("\n" + dimStyle.Render(" "+m.status))
+		}
+	}
+	return b.String()
+}
+
+func (m *Model) viewHelp() string {
+	rows := [][2]string{
+		{"j / k", "move"},
+		{"enter", "jump to space (reopens archived ones)"},
+		{"1-9", "set status by position"},
+		{"s", "status picker"},
+		{"n", "edit note — who or what you are waiting on"},
+		{"space", "collapse / expand group"},
+		{"a", "show or hide archived spaces"},
+		{"/", "filter by name, path or note"},
+		{"S", "manage statuses (add, rename, reorder, delete)"},
+		{"x", "forget the selected space"},
+		{"r", "refresh"},
+		{"q", "quit"},
+	}
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" Board") + "\n\n")
+	for _, r := range rows {
+		b.WriteString("   " + keyStyle.Render(pad(r[0], 10)) + dimStyle.Render(r[1]) + "\n")
+	}
+	b.WriteString("\n" + dimStyle.Render("   status is yours; the dim right column is Herdr's agent state\n"))
+	b.WriteString("\n" + dimStyle.Render(" any key to go back"))
+	return b.String()
+}
+
+// --- text helpers ---
+
+func pad(s string, n int) string {
+	s = truncate(s, n)
+	if w := lipgloss.Width(s); w < n {
+		return s + strings.Repeat(" ", n-w)
+	}
+	return s
+}
+
+func truncate(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	if n <= 1 {
+		return string(r[:1])
+	}
+	return string(r[:min(len(r), n-1)]) + "…"
+}
+
+// joinEnds puts left and right on one line, right-aligned to width.
+func joinEnds(left, right string, width int) string {
+	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		return left
+	}
+	return left + strings.Repeat(" ", gap) + right
+}
+
+// abbreviate shortens a home-relative path for display.
+func abbreviate(path string) string {
+	home, err := os.UserHomeDir()
+	if err == nil && strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

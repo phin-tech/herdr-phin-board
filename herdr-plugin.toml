@@ -1,0 +1,30 @@
+id = "board"
+name = "Board"
+version = "0.1.0"
+min_herdr_version = "0.7.4"
+description = "A status board over your spaces: todo, in progress, waiting on someone, done — plus any status you invent."
+platforms = ["macos", "linux"]
+
+[[build]]
+command = ["go", "build", "-o", "bin/herdr-board", "./cmd/herdr-board"]
+
+[[actions]]
+id = "open"
+title = "Open Board"
+contexts = ["global", "workspace"]
+command = ["sh", "action-open.sh"]
+
+[[panes]]
+id = "board"
+title = "Board"
+placement = "popup"
+width = "80%"
+height = "85%"
+command = ["bin/herdr-board"]
+
+# Workspace tokens do not survive a server restart, but the board file does.
+# Re-applying the stored status when a workspace appears keeps the $status
+# badge in the Spaces sidebar correct without the TUI ever being opened.
+[[events]]
+on = "workspace.created"
+command = ["bin/herdr-board", "sync"]
