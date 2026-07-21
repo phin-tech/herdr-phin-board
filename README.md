@@ -66,13 +66,18 @@ Then bind a key in `~/.config/herdr/config.toml`:
 
 ```toml
 [[keys.command]]
-key = "prefix+k"
+key = "prefix+d"
 type = "plugin_action"
 command = "board.open"
 description = "Space board"
 ```
 
 and reload: `herdr server reload-config`.
+
+`prefix+d` is unbound in Herdr's default keymap. A `keys.command` entry silently
+shadows a built-in, so check the config reference before picking another —
+`prefix+b` is `toggle_sidebar` and `prefix+k` is `focus_pane_up`, both easy to
+lose by accident.
 
 Requires Go on `PATH` (the plugin builds itself on install) and Herdr 0.7.4+.
 
