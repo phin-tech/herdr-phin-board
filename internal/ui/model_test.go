@@ -1242,3 +1242,23 @@ func TestTableWidthsStayInBounds(t *testing.T) {
 		}
 	}
 }
+
+// o outside the table must explain itself rather than doing nothing.
+func TestSortKeyOutsideTableExplains(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		build func(*testing.T) *Model
+	}{
+		{"list", threeInTodo},
+		{"kanban", kanbanBoard},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.build(t)
+			m.status = ""
+			send(t, m, key("o"))
+			if m.status == "" {
+				t.Fatal("o gave no feedback outside the table")
+			}
+		})
+	}
+}

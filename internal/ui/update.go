@@ -555,7 +555,10 @@ func (m *Model) toggleLayout() {
 // cycleSort reorders the table. Grab-moves are only coherent when rows sit in
 // status order, so switching away from it drops anything being held.
 func (m *Model) cycleSort() {
+	// Only the table has a sortable order; the list and kanban are arranged by
+	// status. Saying so beats doing nothing.
 	if m.layout != layoutTable {
+		m.status = "sorting is a table thing — press K to get there"
 		return
 	}
 	selected := m.selectedKey()
