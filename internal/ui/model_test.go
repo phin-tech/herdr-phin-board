@@ -7,8 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/phin-tech/herdr-board/internal/herdr"
-	"github.com/phin-tech/herdr-board/internal/store"
+	"github.com/phin-tech/herdr-phin-board/internal/herdr"
+	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
 
 // newTestModel builds a model with no live socket. Commands returned by Update

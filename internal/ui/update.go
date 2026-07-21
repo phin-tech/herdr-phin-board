@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/phin-tech/herdr-board/internal/store"
+	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
 
 // Update routes messages, dispatching keys to whichever mode is active.

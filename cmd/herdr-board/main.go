@@ -11,9 +11,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/phin-tech/herdr-board/internal/herdr"
-	"github.com/phin-tech/herdr-board/internal/store"
-	"github.com/phin-tech/herdr-board/internal/ui"
+	"github.com/phin-tech/herdr-phin-board/internal/herdr"
+	"github.com/phin-tech/herdr-phin-board/internal/store"
+	"github.com/phin-tech/herdr-phin-board/internal/ui"
 )
 
 func main() {

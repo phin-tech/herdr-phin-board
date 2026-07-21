@@ -14,7 +14,7 @@ machine.
  ▾ Todo (0)
  ▾ In Progress (2)
    dev-stream             ~/src/github.com/phin-tech/dev-stream                    ·working
-   herdr-board            ~/src/github.com/phin-tech/herdr-board                      ·idle
+   herdr-board            ~/src/github.com/phin-tech/herdr-phin-board                      ·idle
 ❯▾ Waiting (2)
    api-gateway            waiting on Dave re: API key                                 ·idle
    docs-site              vendor SLA response, chased 2026-07-18                   ·blocked
@@ -58,7 +58,7 @@ it if you want the room back. In kanban the columns already use the width, so
 ## Install
 
 ```sh
-git clone https://github.com/phin-tech/herdr-board
+git clone https://github.com/phin-tech/herdr-phin-board
 herdr plugin link ./herdr-board
 ```
 
