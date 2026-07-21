@@ -14,7 +14,7 @@ machine.
  ▾ Todo (0)
  ▾ In Progress (2)
    dev-stream             ~/src/github.com/phin-tech/dev-stream                    ·working
-   herdr-board            ~/src/github.com/phin-tech/herdr-phin-board                      ·idle
+   herdr-phin-board       ~/src/github.com/phin-tech/herdr-phin-board                 ·idle
 ❯▾ Waiting (2)
    api-gateway            waiting on Dave re: API key                                 ·idle
    docs-site              vendor SLA response, chased 2026-07-18                   ·blocked
@@ -27,7 +27,25 @@ Statuses are yours: rename them, reorder them, invent new ones. The dim right
 column is Herdr's agent state — a hint only. It never groups, sorts, or
 overrides anything you set.
 
-`K` swaps the same board into kanban columns, one per status:
+`K` cycles the same board through three views. The **table** is the flat one —
+every space on a line, in aligned columns, including the fields the list has no
+room for:
+
+```
+ Board                                                                            5 live · archive hidden
+   SPACE                ↓STATUS     NOTE                                              AGENT    CHANGED
+   dev-stream           In Progress —                                                 idle     just now
+   herdr-phin-board     In Progress —                                                 working  2h ago
+ ❯ api-gateway          Waiting     waiting on Dave re: API key rotation — he's back  idle     10m ago
+   docs-site            Waiting     vendor SLA response, chased 2026-07-18            blocked  1d ago
+   billing              Done        —                                                 idle     3d ago
+```
+
+No groups, no collapse, and it's the only view you can re-sort: `o` cycles
+status → name → changed, and `↓` marks the column in force. Sorting by status
+lays the rows out exactly as the list groups them, so `v` still works there.
+
+The **kanban** is columns, one per status:
 
 ```
  Board                                                                          5 live · archive hidden
@@ -37,7 +55,7 @@ overrides anything you set.
  —                          dev-stream             ❯ api-gateway              billing
                             ·idle                    waiting on Dave re:      ·idle
                                                      API key rotation
-                            herdr-board              ·idle
+                            herdr-phin-board         ·idle
                             ·working
                                                      docs-site
                                                      vendor SLA response,
@@ -102,8 +120,9 @@ so the badge is correct even if you never open the board.
 
 | Key | |
 |---|---|
-| `K` | toggle between the list and the kanban columns |
-| `d` | list: show or hide the detail pane · kanban: open the detail modal |
+| `K` | cycle the view: list → table → kanban |
+| `o` | table only: sort by status, name, or when it last changed |
+| `d` | list: show or hide the detail pane · elsewhere: detail modal |
 | `j` / `k` | move |
 | `h` / `l` | kanban: move between columns · list: collapse / expand a group |
 | `v` | grab the row, then move it — leaving its group changes its status |

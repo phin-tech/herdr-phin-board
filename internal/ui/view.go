@@ -39,8 +39,11 @@ func (m *Model) View() string {
 		return m.viewDetailModal()
 	}
 
-	if m.layout == layoutKanban {
+	switch m.layout {
+	case layoutKanban:
 		return m.viewKanbanBoard()
+	case layoutTable:
+		return m.viewTable()
 	}
 
 	var b strings.Builder
@@ -142,21 +145,22 @@ func (m *Model) viewFooter() string {
 		keys.WriteString(numbered.Render(fmt.Sprintf("%d %s", i+1, st.Label)))
 	}
 
-	kanban := m.layout == layoutKanban
 	var hint string
 	switch {
 	case m.status != "":
 		hint = truncate(m.status, m.width-2)
-	case m.grabbed != "" && kanban:
+	case m.grabbed != "" && m.layout == layoutKanban:
 		hint = "h/l move between columns to retag · j/k reorder · enter drop"
 	case m.grabbed != "":
 		hint = "j/k move · across a group changes status · enter drop"
-	case kanban:
+	case m.layout == layoutKanban:
 		hint = "K list · d detail · v move · n note · enter jump · ? help"
+	case m.layout == layoutTable:
+		hint = "K kanban · o sort · d detail · v move · n note · enter jump · ? help"
 	case m.board.HideDetail:
-		hint = "K kanban · d detail · v move · n note · enter jump · ? help"
+		hint = "K table · d detail · v move · n note · enter jump · ? help"
 	default:
-		hint = "K kanban · v move · n note · enter jump · a archive · ? help"
+		hint = "K table · v move · n note · enter jump · a archive · ? help"
 	}
 	return keys.String() + "\n" + dimStyle.Render(" "+hint)
 }
@@ -300,8 +304,9 @@ func (m *Model) viewManage() string {
 
 func (m *Model) viewHelp() string {
 	rows := [][2]string{
-		{"K", "toggle between the list and the kanban columns"},
-		{"d", "list: show or hide the detail pane · kanban: open the detail modal"},
+		{"K", "cycle the view: list → table → kanban"},
+		{"o", "table only: sort by status, name, or when it last changed"},
+		{"d", "list: show or hide the detail pane · elsewhere: detail modal"},
 		{"j / k", "move"},
 		{"h / l", "kanban: move between columns · list: collapse / expand"},
 		{"v", "grab a row, then move it — leaving its group changes its status"},

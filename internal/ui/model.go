@@ -58,16 +58,35 @@ type layout int
 
 const (
 	layoutList layout = iota
+	layoutTable
 	layoutKanban
 )
 
-const layoutKanbanName = "kanban"
-
 func (l layout) String() string {
-	if l == layoutKanban {
-		return layoutKanbanName
+	switch l {
+	case layoutTable:
+		return "table"
+	case layoutKanban:
+		return "kanban"
+	default:
+		return "list"
 	}
-	return "list"
+}
+
+func parseLayout(s string) layout {
+	switch s {
+	case "table":
+		return layoutTable
+	case "kanban":
+		return layoutKanban
+	default:
+		return layoutList
+	}
+}
+
+// next cycles list -> table -> kanban -> list.
+func (l layout) next() layout {
+	return (l + 1) % 3
 }
 
 type rowKind int
@@ -92,6 +111,8 @@ type Model struct {
 
 	live []herdr.Workspace
 	rows []row
+	// flat is the table's ordered spaces: no headers, no collapse.
+	flat []*space
 	// groups holds every space per status in display order, including those
 	// hidden by a collapsed group -- grab-moves need the full picture.
 	groups map[string][]*space
@@ -106,6 +127,7 @@ type Model struct {
 	// Kanban keeps its own cursor: a column plus a row within that column.
 	// Columns are statuses, so moving sideways is what retags a card.
 	layout    layout
+	sort      tableSort
 	col       int
 	rowInCol  int
 	colOffset int
@@ -134,16 +156,12 @@ func New(client *herdr.Client, board *store.Board) *Model {
 	in.Prompt = ""
 	in.CharLimit = 240
 
-	l := layoutList
-	if board.Layout == layoutKanbanName {
-		l = layoutKanban
-	}
-
 	return &Model{
 		client: client,
 		board:  board,
 		input:  in,
-		layout: l,
+		layout: parseLayout(board.Layout),
+		sort:   parseSort(board.TableSort),
 		width:  80,
 		height: 24,
 		events: make(chan herdr.Event, 64),
@@ -338,13 +356,20 @@ func (m *Model) rebuild() {
 		m.rows = append(m.rows, row{kind: rowEmpty})
 	}
 
+	m.buildFlat()
+
 	m.restoreCursor(selected)
 	m.restoreColumnCursor(selected)
 
 	// On first population the cursor would otherwise land on a group header
 	// (or an empty column), where n / s / 1-9 all silently do nothing.
 	if !m.landed {
-		if i, ok := m.firstSpaceRow(); ok {
+		if m.layout == layoutTable {
+			if len(m.flat) > 0 {
+				m.cursor = 0
+				m.landed = true
+			}
+		} else if i, ok := m.firstSpaceRow(); ok {
 			m.cursor = i
 			m.landed = true
 		}
@@ -448,17 +473,33 @@ func (m *Model) selectedKey() string {
 }
 
 func (m *Model) selected() *space {
-	if m.layout == layoutKanban {
+	switch m.layout {
+	case layoutKanban:
 		group := m.columnSpaces(m.col)
 		if m.rowInCol < 0 || m.rowInCol >= len(group) {
 			return nil
 		}
 		return group[m.rowInCol]
+
+	case layoutTable:
+		if m.cursor < 0 || m.cursor >= len(m.flat) {
+			return nil
+		}
+		return m.flat[m.cursor]
 	}
+
 	if m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
 	return m.rows[m.cursor].space
+}
+
+// cursorLimit is how far the vertical cursor may travel in the active layout.
+func (m *Model) cursorLimit() int {
+	if m.layout == layoutTable {
+		return len(m.flat)
+	}
+	return len(m.rows)
 }
 
 // columnSpaces returns the spaces in one kanban column.
@@ -492,6 +533,15 @@ func (m *Model) restoreCursor(key string) {
 	if key == "" {
 		return
 	}
+	if m.layout == layoutTable {
+		for i, sp := range m.flat {
+			if sp.Key == key {
+				m.cursor = i
+				return
+			}
+		}
+		return
+	}
 	for i, r := range m.rows {
 		if r.kind == rowSpace && r.space.Key == key {
 			m.cursor = i
@@ -501,8 +551,8 @@ func (m *Model) restoreCursor(key string) {
 }
 
 func (m *Model) clampCursor() {
-	if m.cursor >= len(m.rows) {
-		m.cursor = len(m.rows) - 1
+	if m.cursor >= m.cursorLimit() {
+		m.cursor = m.cursorLimit() - 1
 	}
 	if m.cursor < 0 {
 		m.cursor = 0

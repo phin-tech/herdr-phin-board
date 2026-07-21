@@ -42,9 +42,11 @@ type Board struct {
 	Version   int      `json:"version"`
 	Statuses  []Status `json:"statuses"`
 	Collapsed []string `json:"collapsed"`
-	// Layout is "list" or "kanban". Persisted so the board reopens in
+	// Layout is "list", "table" or "kanban". Persisted so the board reopens in
 	// whichever view you were last using.
 	Layout string `json:"layout,omitempty"`
+	// TableSort is "status", "name" or "changed": how the table is ordered.
+	TableSort string `json:"table_sort,omitempty"`
 	// HideDetail turns off the detail pane in the list view. Stored inverted
 	// so the zero value means "show it", which is the default.
 	HideDetail bool             `json:"hide_detail,omitempty"`

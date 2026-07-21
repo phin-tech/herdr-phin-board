@@ -101,10 +101,13 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "K":
 		m.toggleLayout()
 
+	case "o":
+		m.cycleSort()
+
 	case "d":
-		// The list has room alongside for a pane; kanban's columns already use
-		// the full width, so there it opens over the board.
-		if m.layout == layoutKanban {
+		// Only the list has room alongside for a pane. The table and kanban
+		// both use the full width, so there detail opens over the board.
+		if m.layout != layoutList {
 			if !m.requireSpace() {
 				return m, nil
 			}
@@ -130,7 +133,7 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cursor = 0
 		m.clampCursor()
 	case "G", "end":
-		m.cursor = len(m.rows) - 1
+		m.cursor = m.cursorLimit() - 1
 		m.clampCursor()
 	case "ctrl+d", "pgdown":
 		m.cursor += m.listHeight() / 2
@@ -165,10 +168,14 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.clampColumnCursor()
 			return m, nil
 		}
+		if m.layout == layoutTable {
+			return m, nil
+		}
 		return m.toggleCurrentGroup()
 
 	case " ", "tab":
-		if m.layout == layoutKanban {
+		// Only the list has groups to fold.
+		if m.layout != layoutList {
 			return m, nil
 		}
 		return m.toggleCurrentGroup()
@@ -528,16 +535,12 @@ func (m *Model) toggleCurrentGroup() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// toggleLayout switches between the list and the kanban columns, keeping the
-// same space selected and remembering the choice for next time.
+// toggleLayout cycles list -> table -> kanban, keeping the same space selected
+// and remembering the choice for next time.
 func (m *Model) toggleLayout() {
 	selected := m.selectedKey()
 
-	if m.layout == layoutKanban {
-		m.layout = layoutList
-	} else {
-		m.layout = layoutKanban
-	}
+	m.layout = m.layout.next()
 	m.board.Layout = m.layout.String()
 	m.save()
 
@@ -546,6 +549,26 @@ func (m *Model) toggleLayout() {
 	m.restoreColumnCursor(selected)
 	m.clampCursor()
 	m.clampColumnCursor()
+	m.status = "view: " + m.layout.String()
+}
+
+// cycleSort reorders the table. Grab-moves are only coherent when rows sit in
+// status order, so switching away from it drops anything being held.
+func (m *Model) cycleSort() {
+	if m.layout != layoutTable {
+		return
+	}
+	selected := m.selectedKey()
+
+	m.sort = m.sort.next()
+	m.board.TableSort = m.sort.String()
+	m.grabbed = ""
+	m.save()
+
+	m.rebuild()
+	m.restoreCursor(selected)
+	m.clampCursor()
+	m.status = "sorted by " + m.sort.String()
 }
 
 // requireSpace guards the actions that only make sense on a space row. Landing

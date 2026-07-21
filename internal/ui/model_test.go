@@ -676,11 +676,33 @@ func TestFooterListsNumberedStatuses(t *testing.T) {
 func kanbanBoard(t *testing.T) *Model {
 	t.Helper()
 	m := threeInTodo(t)
-	m.toggleLayout()
+	m.toggleLayout() // table
+	m.toggleLayout() // kanban
 	if m.layout != layoutKanban {
-		t.Fatal("K did not switch to kanban")
+		t.Fatal("K did not reach kanban")
 	}
 	return m
+}
+
+func tableBoard(t *testing.T) *Model {
+	t.Helper()
+	m := threeInTodo(t)
+	m.toggleLayout()
+	if m.layout != layoutTable {
+		t.Fatal("K did not reach the table")
+	}
+	return m
+}
+
+// K cycles all three views and comes back round.
+func TestLayoutCycles(t *testing.T) {
+	m := threeInTodo(t)
+	for _, want := range []layout{layoutTable, layoutKanban, layoutList, layoutTable} {
+		send(t, m, key("K"))
+		if m.layout != want {
+			t.Fatalf("cycle reached %v, want %v", m.layout, want)
+		}
+	}
 }
 
 func TestLayoutTogglePersists(t *testing.T) {
@@ -693,6 +715,7 @@ func TestLayoutTogglePersists(t *testing.T) {
 	m := New(nil, board)
 	m.width, m.height = 100, 30
 	send(t, m, liveWorkspaces())
+	send(t, m, key("K"))
 	send(t, m, key("K"))
 
 	reloaded, err := store.Load()
@@ -1032,6 +1055,190 @@ func TestModalRuleFitsTheBox(t *testing.T) {
 	for _, line := range strings.Split(m.View(), "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), "──") && !strings.Contains(line, "│") {
 			t.Fatalf("the rule escaped the box: %q", line)
+		}
+	}
+}
+
+func TestTableListsEveryFlatRow(t *testing.T) {
+	m := tableBoard(t)
+	if len(m.flat) != 3 {
+		t.Fatalf("table has %d rows, want 3", len(m.flat))
+	}
+	// The table is flat: no headers, so every row is selectable.
+	for i := range m.flat {
+		m.cursor = i
+		if m.selected() == nil {
+			t.Fatalf("row %d selects nothing", i)
+		}
+	}
+}
+
+func TestTableSortCyclesAndPersists(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	board, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(nil, board)
+	m.width, m.height = 110, 24
+	send(t, m, liveWorkspaces())
+	send(t, m, key("K")) // table
+
+	send(t, m, key("o"))
+	if m.sort != sortName {
+		t.Fatalf("sort is %v, want name", m.sort)
+	}
+	send(t, m, key("o"))
+	if m.sort != sortChanged {
+		t.Fatalf("sort is %v, want changed", m.sort)
+	}
+	send(t, m, key("o"))
+	if m.sort != sortStatus {
+		t.Fatalf("sort did not wrap back to status: %v", m.sort)
+	}
+
+	send(t, m, key("o"))
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.TableSort != "name" {
+		t.Fatalf("sort not persisted: %q", reloaded.TableSort)
+	}
+}
+
+func TestTableSortByNameOrders(t *testing.T) {
+	m := tableBoard(t)
+	send(t, m, key("o")) // name
+
+	var got []string
+	for _, sp := range m.flat {
+		got = append(got, sp.Label)
+	}
+	want := []string{"alpha", "beta", "gamma"}
+	if !equal(got, want) {
+		t.Fatalf("name sort gave %v, want %v", got, want)
+	}
+}
+
+// Sorting by status must lay rows out exactly as the list groups them, so a
+// row's neighbours are the ones a grab-move would swap with.
+func TestTableStatusSortMatchesGroups(t *testing.T) {
+	m := tableBoard(t)
+	m.cursor = 0
+	send(t, m, key("3")) // move the first row to Waiting
+
+	var got []string
+	for _, sp := range m.flat {
+		got = append(got, sp.Label)
+	}
+	var want []string
+	for _, st := range m.board.Statuses {
+		for _, sp := range m.groups[st.ID] {
+			want = append(want, sp.Label)
+		}
+	}
+	if !equal(got, want) {
+		t.Fatalf("table order %v does not match group order %v", got, want)
+	}
+}
+
+func TestTableGrabReordersAndCrosses(t *testing.T) {
+	m := tableBoard(t)
+	first := m.flat[0].Label
+	m.cursor = 0
+
+	send(t, m, key("v"))
+	send(t, m, key("j"))
+	if m.flat[1].Label != first {
+		t.Fatalf("row did not move down: %v", m.flat[1].Label)
+	}
+
+	// Walking off the end of the group retags, exactly as in the list.
+	send(t, m, key("j"))
+	send(t, m, key("j"))
+	if got := m.board.Entries["/tmp/"+first].Status; got != "in_progress" {
+		t.Fatalf("status is %q, want in_progress", got)
+	}
+}
+
+// A rank is a position within a status. Sorted any other way, the row above is
+// not the one it would swap with, so grabbing must be refused.
+func TestTableGrabRefusedWhenNotSortedByStatus(t *testing.T) {
+	m := tableBoard(t)
+	send(t, m, key("o")) // name
+	m.cursor = 0
+
+	send(t, m, key("v"))
+	if m.grabbed != "" {
+		t.Fatal("grab was allowed against a non-status sort")
+	}
+	if m.status == "" {
+		t.Fatal("no explanation given")
+	}
+}
+
+// Changing the sort while holding a row must drop it rather than move it
+// somewhere arbitrary.
+func TestTableSortChangeDropsGrab(t *testing.T) {
+	m := tableBoard(t)
+	m.cursor = 0
+	send(t, m, key("v"))
+	if m.grabbed == "" {
+		t.Fatal("setup: nothing grabbed")
+	}
+	send(t, m, key("o"))
+	if m.grabbed != "" {
+		t.Fatal("the held row survived a sort change")
+	}
+}
+
+func TestTableRendersColumns(t *testing.T) {
+	m := tableBoard(t)
+	m.width, m.height = 118, 20
+	m.cursor = 0
+	m.board.SetNote("/tmp/"+m.flat[0].Label, "table-note-text")
+	m.rebuild()
+
+	out := m.View()
+	for _, want := range []string{"SPACE", "STATUS", "NOTE", "AGENT", "CHANGED", "table-note-text"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("table is missing %q:\n%s", want, out)
+		}
+	}
+	// The sort marker sits on the column actually being sorted.
+	if !strings.Contains(out, "↓STATUS") {
+		t.Fatalf("status sort is not marked:\n%s", out)
+	}
+}
+
+func TestTableDetailIsAModal(t *testing.T) {
+	m := tableBoard(t)
+	m.width, m.height = 118, 20
+	m.cursor = 0
+
+	if m.detailPaneWidth() != 0 {
+		t.Fatal("the table must not reserve a side pane")
+	}
+	send(t, m, key("d"))
+	if m.mode != modeDetail {
+		t.Fatal("d did not open the modal in the table")
+	}
+}
+
+// Narrow terminals must still produce a usable table rather than overflowing.
+func TestTableWidthsStayInBounds(t *testing.T) {
+	m := tableBoard(t)
+	for _, width := range []int{60, 80, 100, 140} {
+		m.width = width
+		w := m.tableWidths()
+		total := w.name + w.status + w.note + w.agent + w.changed + 4 + 3
+		if total > width {
+			t.Fatalf("at width %d the columns total %d", width, total)
+		}
+		if w.note < 1 || w.name < 1 {
+			t.Fatalf("at width %d a column collapsed: %+v", width, w)
 		}
 	}
 }
