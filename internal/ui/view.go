@@ -24,6 +24,10 @@ var (
 
 // View renders the board.
 func (m *Model) View() string {
+	return m.overlayMenu(m.viewFrame())
+}
+
+func (m *Model) viewFrame() string {
 	if m.quitting {
 		return ""
 	}
@@ -102,7 +106,8 @@ func (m *Model) viewHeader() string {
 		}
 	}
 
-	left := titleStyle.Render(" Board")
+	// The title names the current view and opens the switcher.
+	left := " " + titleStyle.Render(m.title())
 	if m.filter != "" {
 		left += dimStyle.Render(fmt.Sprintf("  /%s", m.filter))
 	}

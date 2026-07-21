@@ -41,15 +41,90 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = string(msg)
 		return m, nil
 
+	case tea.MouseMsg:
+		return m.handleMouse(msg)
+
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	}
 	return m, nil
 }
 
+// handleMouse drives the title dropdown and lets a click land on a row.
+func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
+		return m, nil
+	}
+
+	if m.titleHit(msg.X, msg.Y) {
+		if m.menuOpen {
+			m.menuOpen = false
+		} else {
+			m.openMenu()
+		}
+		return m, nil
+	}
+
+	if m.menuOpen {
+		// A click inside the dropdown chooses; anywhere else dismisses it,
+		// which is what people expect of an open menu.
+		if i := m.menuItemAt(msg.X, msg.Y); i >= 0 {
+			m.chooseMenu(i)
+		} else {
+			m.menuOpen = false
+		}
+		return m, nil
+	}
+
+	m.clickRow(msg.Y)
+	return m, nil
+}
+
+// clickRow moves the cursor to whatever row was clicked, when the layout has
+// an unambiguous vertical mapping. Kanban is left alone: its cards vary in
+// height, so a row number does not identify one.
+func (m *Model) clickRow(y int) {
+	if m.mode != modeNormal || m.layout == layoutKanban {
+		return
+	}
+	first := 2 // header plus the blank line under it
+	if m.layout == layoutTable {
+		first = 2 // header, then the column headings
+	}
+	i := m.offset + (y - first)
+	if i < 0 || i >= m.cursorLimit() {
+		return
+	}
+	m.cursor = i
+	m.clampCursor()
+}
+
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC {
 		return m.quit()
+	}
+
+	// The dropdown swallows navigation while it is open, so the keyboard can
+	// drive it exactly like the mouse.
+	if m.menuOpen {
+		switch msg.String() {
+		case "esc", "q":
+			m.menuOpen = false
+		case "j", "down":
+			if m.menuIdx < len(menuLayouts)-1 {
+				m.menuIdx++
+			}
+		case "k", "up":
+			if m.menuIdx > 0 {
+				m.menuIdx--
+			}
+		case "enter", " ":
+			m.chooseMenu(m.menuIdx)
+		case "K":
+			m.menuOpen = false
+			m.toggleLayout()
+		}
+		return m, nil
 	}
 
 	switch m.mode {
@@ -538,9 +613,15 @@ func (m *Model) toggleCurrentGroup() (tea.Model, tea.Cmd) {
 // toggleLayout cycles list -> table -> kanban, keeping the same space selected
 // and remembering the choice for next time.
 func (m *Model) toggleLayout() {
+	m.setLayout(m.layout.next())
+}
+
+// setLayout switches view, keeping the same space selected and remembering the
+// choice for next time.
+func (m *Model) setLayout(l layout) {
 	selected := m.selectedKey()
 
-	m.layout = m.layout.next()
+	m.layout = l
 	m.board.Layout = m.layout.String()
 	m.save()
 

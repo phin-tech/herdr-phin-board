@@ -6,7 +6,8 @@ description = "A status board over your spaces: todo, in progress, waiting on so
 platforms = ["macos", "linux"]
 
 [[build]]
-command = ["go", "build", "-o", "bin/herdr-phin-board", "./cmd/herdr-phin-board"]
+# Compiles from source when Go is present, else fetches the CI-built binary.
+command = ["sh", "build.sh"]
 
 [[actions]]
 id = "open"

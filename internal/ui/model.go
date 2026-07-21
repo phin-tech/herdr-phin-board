@@ -141,6 +141,10 @@ type Model struct {
 	input       textinput.Model
 	manageIdx   int
 
+	// The title doubles as a view switcher dropdown.
+	menuOpen bool
+	menuIdx  int
+
 	landed bool   // the cursor has been placed on a space at least once
 	status string // transient message shown in the footer
 	err    error

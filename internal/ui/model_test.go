@@ -376,7 +376,7 @@ func TestViewRenders(t *testing.T) {
 	m.rebuild()
 
 	out := m.View()
-	for _, want := range []string{"Board", "Waiting", "web", "waiting on Dave"} {
+	for _, want := range []string{"▾ List", "Waiting", "web", "waiting on Dave"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("view is missing %q:\n%s", want, out)
 		}
@@ -390,7 +390,7 @@ func TestViewRenders(t *testing.T) {
 func TestEmptyBoardRenders(t *testing.T) {
 	m := newTestModel(t)
 	send(t, m, workspacesMsg{})
-	if out := m.View(); !strings.Contains(out, "Board") {
+	if out := m.View(); !strings.Contains(out, "▾ List") {
 		t.Fatalf("empty board did not render:\n%s", out)
 	}
 }
@@ -970,7 +970,7 @@ func TestDetailPaneHiddenWhenNarrow(t *testing.T) {
 	if m.detailPaneWidth() != 0 {
 		t.Fatal("the pane should stand down on a narrow terminal")
 	}
-	if out := m.View(); !strings.Contains(out, "Board") {
+	if out := m.View(); !strings.Contains(out, "▾ List") {
 		t.Fatalf("narrow list did not render:\n%s", out)
 	}
 }
@@ -1260,5 +1260,153 @@ func TestSortKeyOutsideTableExplains(t *testing.T) {
 				t.Fatal("o gave no feedback outside the table")
 			}
 		})
+	}
+}
+
+func click(x, y int) tea.MouseMsg {
+	return tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft}
+}
+
+// The title names the view rather than saying "Board".
+func TestTitleNamesTheView(t *testing.T) {
+	m := threeInTodo(t)
+	if got := m.title(); got != "▾ List" {
+		t.Fatalf("title is %q, want ▾ List", got)
+	}
+	if out := m.View(); !strings.Contains(out, "▾ List") {
+		t.Fatalf("header is not showing the view name:\n%s", out)
+	}
+
+	send(t, m, key("K"))
+	if got := m.title(); got != "▾ Table" {
+		t.Fatalf("title is %q, want ▾ Table", got)
+	}
+	send(t, m, key("K"))
+	if got := m.title(); got != "▾ Kanban" {
+		t.Fatalf("title is %q, want ▾ Kanban", got)
+	}
+}
+
+func TestClickingTitleOpensAndClosesMenu(t *testing.T) {
+	m := threeInTodo(t)
+
+	send(t, m, click(menuIndent+1, menuRow))
+	if !m.menuOpen {
+		t.Fatal("clicking the title did not open the menu")
+	}
+	if !strings.Contains(m.View(), "▴ List") {
+		t.Fatal("the caret did not flip while open")
+	}
+	out := m.View()
+	for _, want := range []string{"List", "Table", "Kanban"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("dropdown is missing %q:\n%s", want, out)
+		}
+	}
+
+	send(t, m, click(menuIndent+1, menuRow))
+	if m.menuOpen {
+		t.Fatal("clicking the title again did not close the menu")
+	}
+}
+
+func TestClickingMenuItemSwitchesView(t *testing.T) {
+	m := threeInTodo(t)
+	m.openMenu()
+
+	// The third entry is kanban.
+	send(t, m, click(menuIndent+2, menuFirstItemRow+2))
+	if m.layout != layoutKanban {
+		t.Fatalf("layout is %v, want kanban", m.layout)
+	}
+	if m.menuOpen {
+		t.Fatal("choosing did not close the menu")
+	}
+	if m.board.Layout != "kanban" {
+		t.Fatalf("choice not persisted: %q", m.board.Layout)
+	}
+}
+
+// Clicking away from an open menu dismisses it rather than acting on the board.
+func TestClickingOutsideDismissesMenu(t *testing.T) {
+	m := threeInTodo(t)
+	m.openMenu()
+	before := m.layout
+
+	send(t, m, click(60, 9))
+	if m.menuOpen {
+		t.Fatal("the menu stayed open")
+	}
+	if m.layout != before {
+		t.Fatal("dismissing changed the view")
+	}
+}
+
+func TestMenuIsKeyboardDrivable(t *testing.T) {
+	m := threeInTodo(t)
+	m.openMenu()
+
+	send(t, m, key("j"))
+	send(t, m, key("enter"))
+	if m.layout != layoutTable {
+		t.Fatalf("layout is %v, want table", m.layout)
+	}
+
+	m.openMenu()
+	send(t, m, key("esc"))
+	if m.menuOpen {
+		t.Fatal("esc did not close the menu")
+	}
+	if m.layout != layoutTable {
+		t.Fatal("esc changed the view")
+	}
+}
+
+// The open menu must swallow navigation, or j/k would move the board cursor
+// underneath it at the same time.
+func TestOpenMenuSwallowsNavigation(t *testing.T) {
+	m := threeInTodo(t)
+	cursor := m.cursor
+	m.openMenu()
+
+	send(t, m, key("j"))
+	if m.cursor != cursor {
+		t.Fatal("j moved the board cursor while the menu was open")
+	}
+	if m.menuIdx != 1 {
+		t.Fatalf("j did not move the menu cursor: %d", m.menuIdx)
+	}
+}
+
+// Clicking a row selects it, so the mouse is useful beyond the switcher.
+func TestClickingARowSelectsIt(t *testing.T) {
+	m := threeInTodo(t)
+	m.width, m.height = 100, 24
+
+	// Row 0 of the list is the Todo header; its first space is one line below.
+	send(t, m, click(10, 3))
+	if sp := m.selected(); sp == nil {
+		t.Fatal("clicking a row selected nothing")
+	}
+}
+
+func TestMenuHitTesting(t *testing.T) {
+	m := threeInTodo(t)
+	if m.titleHit(0, 1) {
+		t.Fatal("a click below the title counted as a hit")
+	}
+	if m.titleHit(99, menuRow) {
+		t.Fatal("a click far right counted as a hit")
+	}
+	if !m.titleHit(menuIndent, menuRow) {
+		t.Fatal("the first title column is not clickable")
+	}
+
+	m.openMenu()
+	if got := m.menuItemAt(menuIndent, menuFirstItemRow); got != 0 {
+		t.Fatalf("first item resolved to %d", got)
+	}
+	if got := m.menuItemAt(menuIndent, menuFirstItemRow+len(menuLayouts)); got != -1 {
+		t.Fatalf("a click past the last item resolved to %d", got)
 	}
 }

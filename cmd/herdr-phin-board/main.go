@@ -49,7 +49,10 @@ func run(args []string) error {
 		}
 	}
 
-	prog := tea.NewProgram(ui.New(client, board), tea.WithAltScreen())
+	// Mouse reporting drives the view switcher in the title bar. It also takes
+	// over drag-to-select inside the popup; most terminals still allow it with
+	// shift held.
+	prog := tea.NewProgram(ui.New(client, board), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = prog.Run()
 	return err
 }

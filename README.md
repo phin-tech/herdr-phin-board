@@ -1,5 +1,7 @@
 # herdr-phin-board
 
+[![ci](https://github.com/phin-tech/herdr-phin-board/actions/workflows/ci.yml/badge.svg)](https://github.com/phin-tech/herdr-phin-board/actions/workflows/ci.yml)
+
 A [Herdr](https://herdr.dev) plugin: a status board over your spaces, in a popup,
 on a key.
 
@@ -76,8 +78,20 @@ it if you want the room back. In kanban the columns already use the width, so
 ## Install
 
 ```sh
+herdr plugin install phin-tech/herdr-phin-board
+```
+
+That runs the build step, which compiles from source if Go is on your `PATH`
+and otherwise downloads the binary CI publishes, checking it against the
+published `.sha256`. Either way you end up with `bin/herdr-phin-board`.
+
+For local development, point Herdr at a working tree instead — no build runs,
+so you compile it yourself:
+
+```sh
 git clone https://github.com/phin-tech/herdr-phin-board
-herdr plugin link ./herdr-phin-board
+cd herdr-phin-board && go build -o bin/herdr-phin-board ./cmd/herdr-phin-board
+herdr plugin link .
 ```
 
 Then bind a key in `~/.config/herdr/config.toml`:
@@ -97,7 +111,8 @@ shadows a built-in, so check the config reference before picking another —
 `prefix+b` is `toggle_sidebar` and `prefix+k` is `focus_pane_up`, both easy to
 lose by accident.
 
-Requires Go on `PATH` (the plugin builds itself on install) and Herdr 0.7.4+.
+Requires Herdr 0.7.4+. Go is optional: without it the install falls back to a
+prebuilt macOS or Linux binary.
 
 ## Status in the Spaces sidebar
 
@@ -120,7 +135,7 @@ so the badge is correct even if you never open the board.
 
 | Key | |
 |---|---|
-| `K` | cycle the view: list → table → kanban |
+| `K` | cycle the view: list → table → kanban (or click the title) |
 | `o` | table only: sort by status, name, or when it last changed |
 | `d` | list: show or hide the detail pane · elsewhere: detail modal |
 | `j` / `k` | move |
