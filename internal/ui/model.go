@@ -120,6 +120,8 @@ type Model struct {
 	// them the board works exactly as before, just without PR columns.
 	gh      *gh.Client
 	prCache *gh.Cache
+	// prLoading guards against overlapping fetch rounds.
+	prLoading bool
 
 	live []herdr.Workspace
 	rows []row

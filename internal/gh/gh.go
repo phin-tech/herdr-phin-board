@@ -38,6 +38,10 @@ type PR struct {
 	Fetched time.Time `json:"fetched"`
 }
 
+// Found reports whether this record is an actual PR rather than a cached
+// "checked, nothing here".
+func (p PR) Found() bool { return p.Number > 0 }
+
 // Runner executes a command in a directory. Swapped out in tests.
 type Runner func(ctx context.Context, dir string, args ...string) ([]byte, error)
 

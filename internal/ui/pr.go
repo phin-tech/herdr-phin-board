@@ -33,7 +33,10 @@ type prLoadedMsg struct {
 // loadPRs refreshes PR state for every space whose cache entry is stale. It
 // runs off the UI thread; the board paints cached values meanwhile.
 func (m *Model) loadPRs() tea.Cmd {
-	if m.gh == nil {
+	if m.gh == nil || m.prLoading {
+		// A fetch is already running. Herdr emits workspace events freely, and
+		// each one refreshes the board, so without this guard a busy session
+		// would stack overlapping rounds of gh subprocesses.
 		return nil
 	}
 
@@ -49,6 +52,7 @@ func (m *Model) loadPRs() tea.Cmd {
 		return nil
 	}
 
+	m.prLoading = true
 	client := m.gh
 	return func() tea.Msg {
 		found := client.FetchAll(context.Background(), dirs)
@@ -65,11 +69,15 @@ func (m *Model) loadPRs() tea.Cmd {
 
 // applyPRs folds a fetch result into the cache and pushes the sidebar token.
 func (m *Model) applyPRs(msg prLoadedMsg) tea.Cmd {
+	m.prLoading = false
+
 	for dir, pr := range msg.found {
 		m.prCache.Put(dir, pr)
 	}
+	// Record the absences rather than dropping them, so a space with no PR is
+	// not re-asked on every single board refresh.
 	for _, dir := range msg.missing {
-		m.prCache.Forget(dir)
+		m.prCache.PutAbsent(dir)
 	}
 
 	keep := map[string]bool{}
@@ -91,7 +99,11 @@ func (m *Model) prFor(key string) (gh.PR, bool) {
 		return gh.PR{}, false
 	}
 	pr, ok := m.prCache.Entries[key]
-	return pr, ok
+	// A cached absence is a record that we looked, not a PR to display.
+	if !ok || !pr.Found() {
+		return gh.PR{}, false
+	}
+	return pr, true
 }
 
 // syncPRTokens mirrors PR state into a $pr sidebar token. The sidebar is

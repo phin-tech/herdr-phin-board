@@ -1804,3 +1804,61 @@ func TestLoadPRsSkipsFreshEntries(t *testing.T) {
 		t.Fatal("loadPRs queued work with everything fresh")
 	}
 }
+
+// The board refreshes on every Herdr workspace event. If a space with no PR
+// were not remembered as such, each of those refreshes would respawn gh for it
+// -- which is what made the input loop feel blocked.
+func TestNoPRSpacesAreNotRefetchedEveryRefresh(t *testing.T) {
+	m := newTestModel(t)
+
+	// The first workspace snapshot asks about both spaces, since neither is
+	// known yet.
+	send(t, m, liveWorkspaces())
+	if !m.prLoading {
+		t.Fatal("the first snapshot did not start a fetch")
+	}
+	m.applyPRs(prLoadedMsg{missing: []string{"/tmp/api", "/tmp/web"}})
+
+	// A workspace event arrives and the board refreshes.
+	send(t, m, liveWorkspaces())
+
+	if m.prLoading {
+		t.Fatal("a refresh respawned gh for spaces already known to have no PR")
+	}
+	if cmd := m.loadPRs(); cmd != nil {
+		t.Fatal("an explicit load respawned gh for known-absent spaces")
+	}
+}
+
+// Overlapping rounds must not stack up while one is in flight.
+func TestLoadPRsGuardsAgainstOverlap(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	if !m.prLoading {
+		t.Fatal("the first snapshot did not start a fetch")
+	}
+
+	if cmd := m.loadPRs(); cmd != nil {
+		t.Fatal("a second load started while the first was still running")
+	}
+
+	// Once the round lands, the guard clears and fetching is allowed again.
+	m.applyPRs(prLoadedMsg{missing: []string{"/tmp/api", "/tmp/web"}})
+	if m.prLoading {
+		t.Fatal("the in-flight guard was not cleared")
+	}
+}
+
+// A cached absence is a record that we looked, not something to render.
+func TestAbsenceIsNotDisplayed(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.applyPRs(prLoadedMsg{missing: []string{"/tmp/api"}})
+
+	if _, ok := m.prFor("/tmp/api"); ok {
+		t.Fatal("a cached absence is being reported as a PR")
+	}
+	if m.anyPR() {
+		t.Fatal("an absence caused the PR column to appear")
+	}
+}

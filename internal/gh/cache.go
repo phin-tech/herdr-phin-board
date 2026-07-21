@@ -13,8 +13,15 @@ import (
 // derived data, so it lives in its own file: losing it costs one refetch,
 // whereas board.json is the user's own work.
 
-// TTL is how long a cached PR is served before a refetch is worthwhile.
-const TTL = 5 * time.Minute
+const (
+	// TTL is how long a cached PR is served before a refetch is worthwhile.
+	TTL = 5 * time.Minute
+	// NegativeTTL applies to directories checked and found to have no PR.
+	// It is longer because a repo gaining a PR is far less time-critical than
+	// an existing PR's checks changing -- and because most spaces never have
+	// one, so this is what stops the board re-asking about all of them.
+	NegativeTTL = 30 * time.Minute
+)
 
 // Cache maps a canonical directory to its last known PR.
 type Cache struct {
@@ -78,7 +85,11 @@ func (c *Cache) Stale(dir string) bool {
 	if !ok {
 		return true
 	}
-	return time.Since(pr.Fetched) > TTL
+	ttl := TTL
+	if !pr.Found() {
+		ttl = NegativeTTL
+	}
+	return time.Since(pr.Fetched) > ttl
 }
 
 // Put records a fetch result.
@@ -86,10 +97,14 @@ func (c *Cache) Put(dir string, pr PR) {
 	c.Entries[dir] = pr
 }
 
-// Forget drops a directory, used when a fetch finds no PR where one was
-// cached -- a merged branch, say. Without this a stale badge would linger.
-func (c *Cache) Forget(dir string) {
-	delete(c.Entries, dir)
+// PutAbsent records that a directory was checked and has no PR.
+//
+// This is the difference between "no PR" and "never asked". Deleting the entry
+// instead would leave it permanently stale, and every board refresh -- which
+// happens on every Herdr workspace event -- would spawn gh again for every
+// space that will never have a PR.
+func (c *Cache) PutAbsent(dir string) {
+	c.Entries[dir] = PR{Fetched: time.Now().UTC()}
 }
 
 // Prune drops directories that are no longer on the board.
