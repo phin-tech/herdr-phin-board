@@ -155,6 +155,9 @@ type Model struct {
 	input       textinput.Model
 	manageIdx   int
 
+	// chord holds a pending multi-key prefix, vim style: g then g or p.
+	chord string
+
 	// The title doubles as a view switcher dropdown.
 	menuOpen bool
 	menuIdx  int

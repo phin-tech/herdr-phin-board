@@ -132,6 +132,10 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if handled, cmd := m.handleChord(msg); handled {
+		return m, cmd
+	}
+
 	switch m.mode {
 	case modeNormal:
 		return m.handleNormalKey(msg)
@@ -209,9 +213,11 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.syncTokens()
 		}
 		m.moveCursor(-1)
-	case "g", "home":
+	case "home":
 		m.cursor = 0
+		m.rowInCol = 0
 		m.clampCursor()
+		m.clampColumnCursor()
 	case "G", "end":
 		m.cursor = m.cursorLimit() - 1
 		m.clampCursor()

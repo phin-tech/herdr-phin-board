@@ -167,7 +167,7 @@ func (m *Model) viewFooter() string {
 	case m.board.HideDetail:
 		hint = "K table · d detail · v move · n note · enter jump · ? help"
 	default:
-		hint = "K table · v move · n note · enter jump · a archive · ? help"
+		hint = "K table · v move · n note · gp open PR · enter jump · ? help"
 	}
 	return keys.String() + "\n" + dimStyle.Render(" "+hint)
 }
@@ -320,6 +320,8 @@ func (m *Model) viewHelp() string {
 		{"o", "table only: sort by status, name, or when it last changed"},
 		{"d", "list: show or hide the detail pane · elsewhere: detail modal"},
 		{"j / k", "move"},
+		{"gg / G", "first row · last row"},
+		{"gp", "open the pull request in a browser"},
 		{"h / l", "kanban: move between columns · list: collapse / expand"},
 		{"v", "grab a row, then move it — leaving its group changes its status"},
 		{"enter", "jump to space (reopens archived ones)"},

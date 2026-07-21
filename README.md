@@ -90,7 +90,8 @@ this suits best — one branch per space, so one PR per row.
 
 `●` open · `○` draft · `◆` merged · `✕` closed, then the review decision, then
 checks `✓` pass `✗` fail `·` running. A row is coloured by whatever most needs
-attention: failing checks first, then changes-requested.
+attention: failing checks first, then changes-requested. `gp` opens the
+selected space's PR in a browser.
 
 **PR state is context, never control.** It never sets a status, moves a row, or
 reorders anything — the same rule the agent hint follows. You drive status; this
@@ -188,6 +189,8 @@ A board that has never named one falls back to the first.
 | `o` | table only: sort by status, name, or when it last changed |
 | `d` | list: show or hide the detail pane · elsewhere: detail modal |
 | `j` / `k` | move |
+| `gg` / `G` | first row · last row |
+| `gp` | open the pull request in a browser |
 | `h` / `l` | kanban: move between columns · list: collapse / expand a group |
 | `v` | grab the row, then move it — leaving its group changes its status |
 | `enter` | jump to the space (reopens archived ones at their old path) |

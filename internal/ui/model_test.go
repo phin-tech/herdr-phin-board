@@ -1862,3 +1862,138 @@ func TestAbsenceIsNotDisplayed(t *testing.T) {
 		t.Fatal("an absence caused the PR column to appear")
 	}
 }
+
+// captureOpens swaps the browser opener for the duration of a test.
+func captureOpens(t *testing.T) *[]string {
+	t.Helper()
+	var opened []string
+	original := openURL
+	openURL = func(url string) error {
+		opened = append(opened, url)
+		return nil
+	}
+	t.Cleanup(func() { openURL = original })
+	return &opened
+}
+
+func TestChordGPOpensThePR(t *testing.T) {
+	opened := captureOpens(t)
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{
+		Number: 42, State: "OPEN",
+		URL: "https://github.com/o/r/pull/42",
+	})
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("g"))
+	if m.chord != "g" {
+		t.Fatal("g did not start a chord")
+	}
+	if _, cmd := m.Update(key("p")); cmd != nil {
+		if msg := cmd(); msg != nil {
+			if e, ok := msg.(errMsg); ok {
+				t.Fatalf("open failed: %v", e.err)
+			}
+		}
+	}
+
+	if len(*opened) != 1 || (*opened)[0] != "https://github.com/o/r/pull/42" {
+		t.Fatalf("opened %v, want the PR URL", *opened)
+	}
+	if m.chord != "" {
+		t.Fatal("the chord was not cleared")
+	}
+}
+
+// gg is vim's "go to top"; bare g must not do it any more, or the chord could
+// never have a second key.
+func TestChordGGGoesToTop(t *testing.T) {
+	m := threeInTodo(t)
+	m.cursor = 3
+
+	send(t, m, key("g"))
+	if m.cursor != 3 {
+		t.Fatal("bare g moved the cursor, leaving no room for a chord")
+	}
+	send(t, m, key("g"))
+	if m.cursor != 0 {
+		t.Fatalf("gg left the cursor at %d, want 0", m.cursor)
+	}
+}
+
+func TestChordOnASpaceWithoutAPRExplains(t *testing.T) {
+	opened := captureOpens(t)
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("g"))
+	send(t, m, key("p"))
+
+	if len(*opened) != 0 {
+		t.Fatalf("opened %v with no PR present", *opened)
+	}
+	if m.status == "" {
+		t.Fatal("gp with no PR gave no feedback")
+	}
+}
+
+// An unknown chord must do nothing rather than falling through to whatever
+// that key means alone -- gx should not archive the board.
+func TestUnknownChordIsSwallowed(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	before := m.showArchive
+
+	send(t, m, key("g"))
+	send(t, m, key("a"))
+
+	if m.showArchive != before {
+		t.Fatal("ga fell through to the archive toggle")
+	}
+	if m.chord != "" {
+		t.Fatal("the chord was not cleared")
+	}
+}
+
+func TestChordCancelledByEsc(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+
+	send(t, m, key("g"))
+	send(t, m, key("esc"))
+	if m.chord != "" {
+		t.Fatal("esc did not cancel the chord")
+	}
+	// And the board is still open: esc cancelled the chord, not the board.
+	if m.quitting {
+		t.Fatal("esc cancelling a chord also quit")
+	}
+}
+
+// The chord works from the detail modal too, where you are most likely to want
+// the PR you are reading about.
+func TestChordWorksInTheDetailModal(t *testing.T) {
+	opened := captureOpens(t)
+	m := kanbanBoard(t)
+	target := labelsIn(m, "todo")[0]
+	withPR(m, "/tmp/"+target, gh.PR{Number: 8, State: "OPEN", URL: "https://example.test/8"})
+	selectSpace(t, m, "/tmp/"+target)
+
+	send(t, m, key("d"))
+	if m.mode != modeDetail {
+		t.Fatal("d did not open the modal")
+	}
+	send(t, m, key("g"))
+	if _, cmd := m.Update(key("p")); cmd != nil {
+		cmd()
+	}
+
+	if len(*opened) != 1 {
+		t.Fatalf("opened %v from the modal, want one URL", *opened)
+	}
+	if m.mode != modeDetail {
+		t.Fatal("opening the PR closed the modal")
+	}
+}
