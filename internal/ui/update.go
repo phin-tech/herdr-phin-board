@@ -118,18 +118,21 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case "s":
-		if m.selected() != nil {
-			m.mode = modeStatusPick
-			m.manageIdx = m.statusIndex(m.selected().StatusID)
+		if !m.requireSpace() {
+			return m, nil
 		}
+		m.mode = modeStatusPick
+		m.manageIdx = m.statusIndex(m.selected().StatusID)
 
 	case "n":
-		if sp := m.selected(); sp != nil {
-			m.mode = modeNote
-			m.input.SetValue(sp.Note)
-			m.input.CursorEnd()
-			m.input.Focus()
+		if !m.requireSpace() {
+			return m, nil
 		}
+		sp := m.selected()
+		m.mode = modeNote
+		m.input.SetValue(sp.Note)
+		m.input.CursorEnd()
+		m.input.Focus()
 
 	case "/":
 		m.mode = modeFilter
@@ -159,6 +162,9 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(key) == 1 && key[0] >= '1' && key[0] <= '9' {
 			idx := int(key[0] - '1')
 			if idx < len(m.board.Statuses) {
+				if !m.requireSpace() {
+					return m, nil
+				}
 				return m.applyStatus(m.board.Statuses[idx])
 			}
 		}
@@ -389,6 +395,16 @@ func (m *Model) forgetSelected() (tea.Model, tea.Cmd) {
 	m.status = fmt.Sprintf("forgot %s", sp.Label)
 	m.rebuild()
 	return m, cmd
+}
+
+// requireSpace guards the actions that only make sense on a space row. Landing
+// on a group header used to make them no-ops, which just looked broken.
+func (m *Model) requireSpace() bool {
+	if m.selected() != nil {
+		return true
+	}
+	m.status = "that's a group header — press j to move down to a space"
+	return false
 }
 
 func (m *Model) statusAt(i int) (store.Status, bool) {

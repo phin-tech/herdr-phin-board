@@ -84,6 +84,7 @@ type Model struct {
 	input       textinput.Model
 	manageIdx   int
 
+	landed bool   // the cursor has been placed on a space at least once
 	status string // transient message shown in the footer
 	err    error
 
@@ -287,7 +288,26 @@ func (m *Model) rebuild() {
 	}
 
 	m.restoreCursor(selected)
+
+	// On first population the cursor would otherwise land on a group header,
+	// where n / s / 1-9 all silently do nothing. Start on a real space.
+	if !m.landed {
+		if i, ok := m.firstSpaceRow(); ok {
+			m.cursor = i
+			m.landed = true
+		}
+	}
+
 	m.clampCursor()
+}
+
+func (m *Model) firstSpaceRow() (int, bool) {
+	for i, r := range m.rows {
+		if r.kind == rowSpace {
+			return i, true
+		}
+	}
+	return 0, false
 }
 
 // rank orders agent states so the busiest one wins when a directory has several

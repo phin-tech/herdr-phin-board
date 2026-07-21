@@ -382,3 +382,56 @@ func TestEmptyBoardRenders(t *testing.T) {
 }
 
 var _ = herdr.MetadataSource
+
+// Opening the board must not leave the cursor on a group header, where n, s
+// and 1-9 would all silently do nothing.
+func TestCursorStartsOnASpace(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+
+	if m.selected() == nil {
+		t.Fatalf("cursor landed on a header (row %d of %d)", m.cursor, len(m.rows))
+	}
+}
+
+func TestNoteWorksImmediatelyAfterOpen(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+
+	send(t, m, key("n"))
+	if m.mode != modeNote {
+		t.Fatal("n did not open the note editor on a freshly opened board")
+	}
+	m.input.SetValue("waiting on procurement")
+	send(t, m, key("enter"))
+
+	sp := m.selected()
+	if got := m.board.Entries[sp.Key].Note; got != "waiting on procurement" {
+		t.Fatalf("note not saved: %q", got)
+	}
+}
+
+func TestHeaderRowExplainsItself(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.cursor = 0 // a group header
+
+	send(t, m, key("n"))
+	if m.mode == modeNote {
+		t.Fatal("note editor opened on a header row")
+	}
+	if m.status == "" {
+		t.Fatal("header row gave no feedback")
+	}
+}
+
+// An empty board has no space to land on; the cursor logic must not wedge.
+func TestCursorHandlesEmptyBoard(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, workspacesMsg{})
+	if m.selected() != nil {
+		t.Fatal("empty board should have nothing selected")
+	}
+	send(t, m, key("n"))
+	send(t, m, key("1"))
+}
