@@ -59,9 +59,15 @@ const currentVersion = 1
 
 // DefaultStatuses is the starting set. Everything here is editable in the TUI;
 // none of these ids are special-cased anywhere in the code.
+//
+// Triage leads deliberately. The first status is where every space that you
+// have never touched lands, so it has to mean "not looked at yet" rather than
+// being a real choice -- otherwise Todo would mean both, and its badge could
+// not tell you which.
 func DefaultStatuses() []Status {
 	return []Status{
-		{ID: "todo", Label: "Todo", Color: "244"},
+		{ID: "triage", Label: "Triage", Color: "244"},
+		{ID: "todo", Label: "Todo", Color: "111"},
 		{ID: "in_progress", Label: "In Progress", Color: "39"},
 		{ID: "waiting", Label: "Waiting", Color: "214"},
 		{ID: "done", Label: "Done", Color: "78"},

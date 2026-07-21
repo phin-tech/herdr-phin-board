@@ -17,11 +17,17 @@ func loadTemp(t *testing.T) *Board {
 
 func TestLoadCreatesDefaults(t *testing.T) {
 	b := loadTemp(t)
-	if len(b.Statuses) != 4 {
-		t.Fatalf("want 4 default statuses, got %d", len(b.Statuses))
+	if len(b.Statuses) != 5 {
+		t.Fatalf("want 5 default statuses, got %d", len(b.Statuses))
 	}
-	if b.DefaultStatusID() != "todo" {
-		t.Fatalf("want todo as default, got %q", b.DefaultStatusID())
+	// Triage must lead: the first status is where untouched spaces land, so it
+	// has to mean "not looked at yet" rather than being a real choice. Todo
+	// sits after it, and a Todo badge then means someone decided.
+	if b.DefaultStatusID() != "triage" {
+		t.Fatalf("want triage as default, got %q", b.DefaultStatusID())
+	}
+	if b.Statuses[1].ID != "todo" {
+		t.Fatalf("want todo after triage, got %q", b.Statuses[1].ID)
 	}
 }
 
@@ -108,9 +114,14 @@ func TestAddStatusUniqueIDs(t *testing.T) {
 
 func TestMoveStatusReorders(t *testing.T) {
 	b := loadTemp(t)
-	b.MoveStatus("todo", 1)
-	if b.Statuses[0].ID != "in_progress" || b.Statuses[1].ID != "todo" {
+	b.MoveStatus("triage", 1)
+	if b.Statuses[0].ID != "todo" || b.Statuses[1].ID != "triage" {
 		t.Fatalf("unexpected order: %v", b.Statuses)
+	}
+	// Reordering moves the default with it: the first status is the default,
+	// whichever one that now is.
+	if b.DefaultStatusID() != "todo" {
+		t.Fatalf("default is %q, want it to follow the order", b.DefaultStatusID())
 	}
 
 	// Moving past an edge is a no-op rather than a panic.

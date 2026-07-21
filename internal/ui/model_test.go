@@ -11,16 +11,34 @@ import (
 	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
 
+// loadTestBoard gives every UI test the same four statuses, rather than
+// whatever the product currently ships. Changing the defaults is a product
+// decision; it should not renumber the keys these tests press.
+func loadTestBoard(t *testing.T) *store.Board {
+	t.Helper()
+	board, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Statuses = []store.Status{
+		{ID: "todo", Label: "Todo", Color: "244"},
+		{ID: "in_progress", Label: "In Progress", Color: "39"},
+		{ID: "waiting", Label: "Waiting", Color: "214"},
+		{ID: "done", Label: "Done", Color: "78"},
+	}
+	board.Collapsed = []string{"done"}
+	if err := board.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return board
+}
+
 // newTestModel builds a model with no live socket. Commands returned by Update
 // are never run here, so the nil client is never dialled.
 func newTestModel(t *testing.T) *Model {
 	t.Helper()
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
-	board, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	m := New(nil, board)
+	m := New(nil, loadTestBoard(t))
 	m.width, m.height = 100, 30
 	return m
 }
@@ -146,10 +164,7 @@ func TestStatusPersistsAcrossReload(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
 
-	board, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	board := loadTestBoard(t)
 	m := New(nil, board)
 	m.width, m.height = 100, 30
 	send(t, m, liveWorkspaces())
@@ -510,10 +525,7 @@ func TestGrabReordersWithinGroup(t *testing.T) {
 func TestManualOrderPersists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
-	board, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	board := loadTestBoard(t)
 	m := New(nil, board)
 	m.width, m.height = 100, 30
 	send(t, m, workspacesMsg{
@@ -708,10 +720,7 @@ func TestLayoutCycles(t *testing.T) {
 func TestLayoutTogglePersists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
-	board, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	board := loadTestBoard(t)
 	m := New(nil, board)
 	m.width, m.height = 100, 30
 	send(t, m, liveWorkspaces())
@@ -941,10 +950,7 @@ func TestDetailPaneTracksCursor(t *testing.T) {
 func TestDetailPaneTogglesAndPersists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
-	board, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	board := loadTestBoard(t)
 	m := New(nil, board)
 	m.width, m.height = 110, 24
 	send(t, m, liveWorkspaces())
@@ -1076,10 +1082,7 @@ func TestTableListsEveryFlatRow(t *testing.T) {
 func TestTableSortCyclesAndPersists(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
-	board, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	board := loadTestBoard(t)
 	m := New(nil, board)
 	m.width, m.height = 110, 24
 	send(t, m, liveWorkspaces())

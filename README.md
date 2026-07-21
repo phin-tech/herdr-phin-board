@@ -131,6 +131,14 @@ Tokens don't survive a server restart, but the board file does — a
 `workspace.created` hook re-applies the stored status whenever a space appears,
 so the badge is correct even if you never open the board.
 
+**The first status gets no badge.** Every space you have never touched sits
+there, so badging it would put the same word on every sidebar row while telling
+you nothing — and it could not distinguish "I filed this as Todo" from "I have
+never looked at this". That is why the shipped set leads with **Triage**: it
+means *not looked at yet*, which leaves Todo free to mean a decision you
+actually made, badge and all. Reorder your statuses and the suppression follows
+— whichever status is first is the quiet one.
+
 ## Keys
 
 | Key | |
