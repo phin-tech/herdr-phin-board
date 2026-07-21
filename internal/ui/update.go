@@ -386,6 +386,14 @@ func (m *Model) handleManageKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.Focus()
 		}
 
+	case "D":
+		if st, ok := m.statusAt(m.manageIdx); ok {
+			m.board.SetDefaultStatus(st.ID)
+			m.save()
+			m.status = st.Label + " is now the default — new spaces land there, and it gets no sidebar badge"
+			return m, m.syncTokens()
+		}
+
 	case "d":
 		if st, ok := m.statusAt(m.manageIdx); ok {
 			if err := m.board.RemoveStatus(st.ID); err != nil {

@@ -1605,3 +1605,61 @@ func TestSuppressionFollowsStatusOrder(t *testing.T) {
 		t.Fatalf("w1 token is %v, want Todo once it is no longer default", v)
 	}
 }
+
+// D in the status manager sets the default, and the suppression follows it.
+func TestSetDefaultStatusFromManager(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3")) // Waiting
+
+	// Waiting is badged while Todo is the default.
+	if v := tokenPushes(m)["w1"]; v == nil || *v != "Waiting" {
+		t.Fatalf("w1 token is %v, want Waiting", v)
+	}
+
+	send(t, m, key("S"))
+	m.manageIdx = 2 // Waiting
+	send(t, m, key("D"))
+
+	if got := m.board.DefaultStatusID(); got != "waiting" {
+		t.Fatalf("default is %q, want waiting", got)
+	}
+	// Now Waiting is the quiet one and Todo speaks up.
+	if v := tokenPushes(m)["w1"]; v != nil {
+		t.Fatalf("the new default still badges: %q", *v)
+	}
+	if v := tokenPushes(m)["w2"]; v == nil || *v != "Todo" {
+		t.Fatalf("w2 token is %v, want Todo once it is no longer default", v)
+	}
+}
+
+// Reordering must not change which status is quiet -- that was the whole point
+// of making the default explicit.
+func TestReorderingDoesNotMoveTheDefault(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.board.SetDefaultStatus("todo")
+
+	send(t, m, key("S"))
+	m.manageIdx = 0
+	send(t, m, key("J")) // push Todo down the order
+
+	if got := m.board.DefaultStatusID(); got != "todo" {
+		t.Fatalf("default moved with the order: %q", got)
+	}
+}
+
+func TestManagerMarksTheDefault(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	send(t, m, key("S"))
+
+	out := m.View()
+	if !strings.Contains(out, "default") {
+		t.Fatalf("the manager does not mark the default:\n%s", out)
+	}
+	if !strings.Contains(out, "D set default") {
+		t.Fatalf("the manager does not advertise D:\n%s", out)
+	}
+}

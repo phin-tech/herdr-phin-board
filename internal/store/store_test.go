@@ -118,11 +118,8 @@ func TestMoveStatusReorders(t *testing.T) {
 	if b.Statuses[0].ID != "todo" || b.Statuses[1].ID != "triage" {
 		t.Fatalf("unexpected order: %v", b.Statuses)
 	}
-	// Reordering moves the default with it: the first status is the default,
-	// whichever one that now is.
-	if b.DefaultStatusID() != "todo" {
-		t.Fatalf("default is %q, want it to follow the order", b.DefaultStatusID())
-	}
+	// Reordering is presentation only; which status is the default is an
+	// explicit choice, covered by TestDefaultIsExplicitNotPositional.
 
 	// Moving past an edge is a no-op rather than a panic.
 	b.MoveStatus("in_progress", -1)
@@ -182,5 +179,83 @@ func TestInjectedStateDirWins(t *testing.T) {
 	}
 	if got != "/injected/board.json" {
 		t.Fatalf("Path() = %q, want the injected dir to win", got)
+	}
+}
+
+// The default is an explicit choice, so reordering must not move it.
+func TestDefaultIsExplicitNotPositional(t *testing.T) {
+	b := loadTemp(t)
+	if b.DefaultStatusID() != "triage" {
+		t.Fatalf("new board default is %q, want triage", b.DefaultStatusID())
+	}
+
+	b.MoveStatus("triage", 3)
+	if got := b.DefaultStatusID(); got != "triage" {
+		t.Fatalf("default moved with the order: %q", got)
+	}
+}
+
+func TestSetDefaultStatus(t *testing.T) {
+	b := loadTemp(t)
+	b.SetDefaultStatus("waiting")
+	if got := b.DefaultStatusID(); got != "waiting" {
+		t.Fatalf("default is %q, want waiting", got)
+	}
+	if !b.IsDefaultStatus("waiting") || b.IsDefaultStatus("triage") {
+		t.Fatal("IsDefaultStatus disagrees with DefaultStatusID")
+	}
+
+	// An unknown id clears it rather than leaving a dangling name.
+	b.SetDefaultStatus("nonsense")
+	if b.Default != "" {
+		t.Fatalf("Default is %q, want it cleared", b.Default)
+	}
+	if got := b.DefaultStatusID(); got != b.Statuses[0].ID {
+		t.Fatalf("cleared default did not fall back to first: %q", got)
+	}
+}
+
+// A board written before this field existed has no default named, and must
+// keep behaving as it did: first status wins.
+func TestBoardWithoutDefaultFallsBackToFirst(t *testing.T) {
+	b := loadTemp(t)
+	b.Default = ""
+	if got := b.DefaultStatusID(); got != b.Statuses[0].ID {
+		t.Fatalf("legacy board default is %q, want %q", got, b.Statuses[0].ID)
+	}
+}
+
+func TestDeletingTheDefaultReassignsIt(t *testing.T) {
+	b := loadTemp(t)
+	b.SetDefaultStatus("waiting")
+	if err := b.RemoveStatus("waiting"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.StatusByID(b.Default); !ok {
+		t.Fatalf("Default points at a deleted status: %q", b.Default)
+	}
+	if got := b.DefaultStatusID(); got != b.Statuses[0].ID {
+		t.Fatalf("default is %q, want the first status", got)
+	}
+}
+
+func TestDefaultSurvivesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	b, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.SetDefaultStatus("in_progress")
+	if err := b.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.DefaultStatusID(); got != "in_progress" {
+		t.Fatalf("default did not persist: %q", got)
 	}
 }

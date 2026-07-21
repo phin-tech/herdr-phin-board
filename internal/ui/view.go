@@ -291,7 +291,12 @@ func (m *Model) viewManage() string {
 		if count == 1 {
 			noun = "space"
 		}
-		b.WriteString(cursor + style.Render(pad(st.Label, 24)) + dimStyle.Render(fmt.Sprintf("%d %s", count, noun)) + "\n")
+		marker := pad("", 9)
+		if m.board.IsDefaultStatus(st.ID) {
+			marker = keyStyle.Render(pad("default", 9))
+		}
+		b.WriteString(cursor + style.Render(pad(st.Label, 24)) + marker +
+			dimStyle.Render(fmt.Sprintf("%d %s", count, noun)) + "\n")
 	}
 
 	b.WriteString("\n")
@@ -301,7 +306,7 @@ func (m *Model) viewManage() string {
 	case modeManageRename:
 		b.WriteString(keyStyle.Render(" rename to: ") + m.input.View())
 	default:
-		b.WriteString(dimStyle.Render(" a add · r rename · d delete · J/K reorder · esc back"))
+		b.WriteString(dimStyle.Render(" a add · r rename · d delete · D set default · J/K reorder · esc back"))
 		if m.status != "" {
 			b.WriteString("\n" + dimStyle.Render(" "+m.status))
 		}

@@ -47,6 +47,10 @@ type Board struct {
 	Layout string `json:"layout,omitempty"`
 	// TableSort is "status", "name" or "changed": how the table is ordered.
 	TableSort string `json:"table_sort,omitempty"`
+	// Default names the status that untouched spaces land in, and whose badge
+	// stays silent. Empty means the first status, which is what older boards
+	// relied on before this was explicit.
+	Default string `json:"default,omitempty"`
 	// HideDetail turns off the detail pane in the list view. Stored inverted
 	// so the zero value means "show it", which is the default.
 	HideDetail bool             `json:"hide_detail,omitempty"`
@@ -109,6 +113,7 @@ func Load() (*Board, error) {
 		Version:   currentVersion,
 		Statuses:  DefaultStatuses(),
 		Collapsed: []string{"done"},
+		Default:   "triage",
 		Entries:   map[string]Entry{},
 		path:      path,
 	}
@@ -180,12 +185,34 @@ func Key(dir string) string {
 	return filepath.Clean(dir)
 }
 
-// DefaultStatusID is the status a newly seen space lands in.
+// DefaultStatusID is the status a newly seen space lands in, and the one whose
+// badge is suppressed. It is an explicit choice rather than a position, so
+// reordering the board cannot silently change which status goes quiet.
 func (b *Board) DefaultStatusID() string {
 	if len(b.Statuses) == 0 {
 		return ""
 	}
+	if _, ok := b.StatusByID(b.Default); ok {
+		return b.Default
+	}
+	// Unset, or naming a status that has since been deleted: fall back to the
+	// first, which is what boards written before this field relied on.
 	return b.Statuses[0].ID
+}
+
+// SetDefaultStatus marks which status is the default. An unknown id clears it,
+// returning the board to first-status behaviour.
+func (b *Board) SetDefaultStatus(id string) {
+	if _, ok := b.StatusByID(id); !ok {
+		b.Default = ""
+		return
+	}
+	b.Default = id
+}
+
+// IsDefaultStatus reports whether a status is the default one.
+func (b *Board) IsDefaultStatus(id string) bool {
+	return id == b.DefaultStatusID()
 }
 
 // StatusByID looks up a status definition.
@@ -299,6 +326,11 @@ func (b *Board) RemoveStatus(id string) error {
 			b.Collapsed = append(b.Collapsed[:i], b.Collapsed[i+1:]...)
 			break
 		}
+	}
+	// Deleting the default leaves the board without one; fall back to the first
+	// rather than leaving a dangling name behind.
+	if b.Default == id {
+		b.Default = b.Statuses[0].ID
 	}
 	return nil
 }
