@@ -11,18 +11,19 @@ and what's parked because you're waiting on a person or something outside the
 machine.
 
 ```
- Board                                                              4 live · archive hidden
+ ▾ List                                                              4 live · archive hidden
 
- ▾ Todo (0)
+ ▾ Triage (0)
  ▾ In Progress (2)
-   dev-stream             ~/src/github.com/phin-tech/dev-stream                    ·working
    herdr-phin-board       ~/src/github.com/phin-tech/herdr-phin-board                 ·idle
-❯▾ Waiting (2)
-   api-gateway            waiting on Dave re: API key                                 ·idle
+   dev-stream             ~/src/github.com/phin-tech/dev-stream                    ·working
+ ▾ Waiting (2)
    docs-site              vendor SLA response, chased 2026-07-18                   ·blocked
+ ❯ api-gateway            waiting on Dave re: API key                                 ·idle
  ▸ Done (0)
 
- 1-9 status · s pick · n note · enter jump · a archive · S statuses · ? help
+ 1 Triage  2 Todo  3 In Progress  4 Waiting  5 Done
+ K table · d detail · v move · n note · enter jump · ? help
 ```
 
 Statuses are yours: rename them, reorder them, invent new ones. The dim right
