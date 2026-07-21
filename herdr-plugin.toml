@@ -20,11 +20,13 @@ title = "Board"
 placement = "popup"
 width = "80%"
 height = "85%"
-command = ["bin/herdr-board"]
+# Pane commands are resolved against PATH, not the plugin root, so the binary
+# has to be named absolutely via the injected plugin root.
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-board"']
 
 # Workspace tokens do not survive a server restart, but the board file does.
 # Re-applying the stored status when a workspace appears keeps the $status
 # badge in the Spaces sidebar correct without the TUI ever being opened.
 [[events]]
 on = "workspace.created"
-command = ["bin/herdr-board", "sync"]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-board" sync']
