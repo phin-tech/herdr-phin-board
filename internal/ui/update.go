@@ -136,7 +136,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleManageKey(msg)
 	case modeDetail:
 		return m.handleDetailKey(msg)
-	case modeNote, modeFilter, modeManageAdd, modeManageRename:
+	case modeNote, modeRename, modeFilter, modeManageAdd, modeManageRename:
 		return m.handleInputKey(msg)
 	case modeHelp:
 		m.mode = modeNormal
@@ -269,6 +269,15 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		sp := m.selected()
 		m.mode = modeNote
 		m.input.SetValue(sp.Note)
+		m.input.CursorEnd()
+		m.input.Focus()
+
+	case "R":
+		if !m.requireSpace() {
+			return m, nil
+		}
+		m.mode = modeRename
+		m.input.SetValue(m.selected().Label)
 		m.input.CursorEnd()
 		m.input.Focus()
 
@@ -464,6 +473,9 @@ func (m *Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.save()
 				m.rebuild()
 			}
+
+		case modeRename:
+			return m, m.renameSelected(value)
 		case modeFilter:
 			m.filter = value
 			m.rebuild()
@@ -522,6 +534,49 @@ func (m *Model) applyStatus(st store.Status) (tea.Model, tea.Cmd) {
 	m.rebuild()
 	m.status = fmt.Sprintf("%s → %s", sp.Label, st.Label)
 	return m, m.syncTokens()
+}
+
+// renameSelected renames the space. For a live one that means renaming the
+// Herdr workspace itself, so the new name shows everywhere; for an archived
+// one there is nothing to rename but the board's own record of it.
+func (m *Model) renameSelected(label string) tea.Cmd {
+	sp := m.selected()
+	if sp == nil || label == "" {
+		return nil
+	}
+
+	m.ensureEntry(sp)
+	entry := m.board.Entries[sp.Key]
+	entry.Label = label
+	m.board.Entries[sp.Key] = entry
+	m.save()
+
+	id := sp.DisplayWorkspaceID
+	if id == "" {
+		// Archived: the board's own record is all there is to rename.
+		m.rebuild()
+		m.status = "renamed " + label
+		return nil
+	}
+
+	// Herdr owns a live workspace's name, and rebuild reads it back from the
+	// snapshot. Update the snapshot too so the new name shows at once; the
+	// workspace_renamed event will confirm it a moment later.
+	for i := range m.live {
+		if m.live[i].ID == id {
+			m.live[i].Label = label
+		}
+	}
+	m.rebuild()
+
+	client := m.client
+	m.status = "renamed " + label
+	return func() tea.Msg {
+		if err := client.RenameWorkspace(id, label); err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
 }
 
 // ensureEntry makes sure a space has a stored entry before a note is attached,

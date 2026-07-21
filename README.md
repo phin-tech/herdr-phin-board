@@ -145,6 +145,7 @@ so the badge is correct even if you never open the board.
 | `1`–`9` | send to that status; the numbers are listed along the bottom |
 | `s` | status picker |
 | `n` | edit the note — who or what you're waiting on |
+| `R` | rename the space — renames the Herdr workspace too |
 | `space` | collapse / expand a group |
 | `a` | show or hide archived spaces |
 | `/` | filter by name, path, or note |

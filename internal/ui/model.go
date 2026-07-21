@@ -20,6 +20,7 @@ const (
 	modeNormal mode = iota
 	modeStatusPick
 	modeNote
+	modeRename
 	modeFilter
 	modeManage
 	modeManageAdd
@@ -38,6 +39,10 @@ type space struct {
 	WorkspaceIDs []string
 	AgentStatus  string
 	Focused      bool
+	// DisplayWorkspaceID owns the label being shown. When several workspaces
+	// share a directory they keep distinct names, so a rename must target the
+	// one whose name is actually on screen rather than all of them.
+	DisplayWorkspaceID string
 
 	StatusID  string
 	Note      string
@@ -266,7 +271,7 @@ func (m *Model) rebuild() {
 		}
 		sp, ok := spaces[key]
 		if !ok {
-			sp = &space{Key: key, Label: ws.Label, Live: true}
+			sp = &space{Key: key, Label: ws.Label, Live: true, DisplayWorkspaceID: ws.ID}
 			spaces[key] = sp
 		}
 		// Several workspaces can share a directory; they collapse into one row
@@ -275,6 +280,7 @@ func (m *Model) rebuild() {
 		if ws.Focused {
 			sp.Focused = true
 			sp.Label = ws.Label
+			sp.DisplayWorkspaceID = ws.ID
 		}
 		if rank(ws.AgentStatus) > rank(sp.AgentStatus) {
 			sp.AgentStatus = ws.AgentStatus

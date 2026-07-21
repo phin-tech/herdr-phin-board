@@ -77,6 +77,15 @@ func (c *Client) FocusWorkspace(id string) error {
 	return c.Request("workspace.focus", map[string]any{"workspace_id": id}, nil)
 }
 
+// RenameWorkspace sets a workspace's label in Herdr itself, so a rename from
+// the board shows in the sidebar and switcher too, not just on the board.
+func (c *Client) RenameWorkspace(id, label string) error {
+	return c.Request("workspace.rename", map[string]any{
+		"workspace_id": id,
+		"label":        label,
+	}, nil)
+}
+
 // CreateWorkspace opens a new workspace rooted at cwd and returns its id.
 func (c *Client) CreateWorkspace(cwd, label string) (string, error) {
 	params := map[string]any{"cwd": cwd, "focus": true}

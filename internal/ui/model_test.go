@@ -1410,3 +1410,99 @@ func TestMenuHitTesting(t *testing.T) {
 		t.Fatalf("a click past the last item resolved to %d", got)
 	}
 }
+
+func TestRenameUpdatesStoredLabel(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("R"))
+	if m.mode != modeRename {
+		t.Fatal("R did not open the rename prompt")
+	}
+	// The prompt starts from the current name rather than empty.
+	if m.input.Value() != "api" {
+		t.Fatalf("prompt seeded with %q, want api", m.input.Value())
+	}
+
+	m.input.SetValue("api-gateway")
+	send(t, m, key("enter"))
+
+	if m.mode != modeNormal {
+		t.Fatal("rename did not close the prompt")
+	}
+	if got := m.board.Entries["/tmp/api"].Label; got != "api-gateway" {
+		t.Fatalf("stored label is %q, want api-gateway", got)
+	}
+	if sp := m.selected(); sp == nil || sp.Label != "api-gateway" {
+		t.Fatalf("row still shows %+v", sp)
+	}
+}
+
+// A rename targets the workspace whose name is on screen, not every workspace
+// sharing the directory -- those keep distinct names on purpose.
+func TestRenameTargetsTheDisplayedWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, workspacesMsg{
+		{ID: "w1", Label: "api", Cwd: "/tmp/api"},
+		{ID: "w2", Label: "api-2", Cwd: "/tmp/api", Focused: true},
+	})
+
+	sp := m.selected()
+	if sp == nil || len(sp.WorkspaceIDs) != 2 {
+		t.Fatalf("setup: expected a merged row, got %+v", sp)
+	}
+	// The focused workspace owns the visible label.
+	if sp.DisplayWorkspaceID != "w2" {
+		t.Fatalf("display workspace is %q, want w2", sp.DisplayWorkspaceID)
+	}
+}
+
+func TestRenameArchivedSpaceNeedsNoWorkspace(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3"))
+
+	// The workspace goes away; the entry stays and is still renameable.
+	send(t, m, workspacesMsg{{ID: "w2", Label: "web", Cwd: "/tmp/web"}})
+	send(t, m, key("a"))
+	selectSpace(t, m, "/tmp/api")
+
+	if sp := m.selected(); sp.DisplayWorkspaceID != "" {
+		t.Fatalf("archived space claims workspace %q", sp.DisplayWorkspaceID)
+	}
+	send(t, m, key("R"))
+	m.input.SetValue("old-api")
+	send(t, m, key("enter"))
+
+	if got := m.board.Entries["/tmp/api"].Label; got != "old-api" {
+		t.Fatalf("archived rename not stored: %q", got)
+	}
+}
+
+// An empty name would erase the row's identity, so it is ignored.
+func TestRenameIgnoresEmptyName(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("R"))
+	m.input.SetValue("   ")
+	send(t, m, key("enter"))
+
+	if sp := m.selected(); sp == nil || sp.Label != "api" {
+		t.Fatalf("empty rename changed the row: %+v", sp)
+	}
+}
+
+func TestRenameShowsItsOwnPrompt(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("R"))
+
+	if out := m.View(); !strings.Contains(out, "rename:") {
+		t.Fatalf("no rename prompt in the footer:\n%s", out)
+	}
+}

@@ -131,6 +131,8 @@ func (m *Model) viewFooter() string {
 	switch m.mode {
 	case modeNote:
 		return keyStyle.Render(" note: ") + m.input.View()
+	case modeRename:
+		return keyStyle.Render(" rename: ") + m.input.View()
 	case modeFilter:
 		return keyStyle.Render(" filter: ") + m.input.View()
 	}
@@ -319,6 +321,7 @@ func (m *Model) viewHelp() string {
 		{"1-9", "send to that status, numbered along the bottom"},
 		{"s", "status picker"},
 		{"n", "edit note — who or what you are waiting on"},
+		{"R", "rename the space — renames the Herdr workspace too"},
 		{"space", "collapse / expand group"},
 		{"a", "show or hide archived spaces"},
 		{"/", "filter by name, path or note"},
