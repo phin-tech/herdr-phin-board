@@ -1,0 +1,30 @@
+{
+  "isDraft": false,
+  "number": 13938,
+  "reviewDecision": "REVIEW_REQUIRED",
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-07-21T14:03:44Z",
+      "conclusion": "SKIPPED",
+      "detailsUrl": "https://github.com/cli/cli/actions/runs/29837333388/job/88656962581",
+      "name": "label-external",
+      "startedAt": "2026-07-21T14:03:50Z",
+      "status": "COMPLETED",
+      "workflowName": "PR Triaging"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-07-21T14:06:59Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/cli/cli/actions/runs/29837333941/job/88656938699",
+      "name": "CodeQL-Build (go)",
+      "startedAt": "2026-07-21T14:03:49Z",
+      "status": "COMPLETED",
+      "workflowName": "Code Scanning"
+    }
+  ],
+  "title": "chore(deps): bump github/gh-aw-actions/setup from 0.82.8 to 0.82.13",
+  "url": "https://github.com/cli/cli/pull/13938"
+}

@@ -21,7 +21,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.live = msg
 		m.err = nil
 		m.rebuild()
-		return m, m.syncTokens()
+		// The space list is what defines which directories to ask GitHub
+		// about, so PR loading is kicked off from here rather than Init.
+		return m, tea.Batch(m.syncTokens(), m.loadPRs())
+
+	case prLoadedMsg:
+		return m, m.applyPRs(msg)
 
 	case eventMsg:
 		// Any workspace change invalidates the list; refetch and keep listening.

@@ -75,6 +75,43 @@ it if you want the room back. In kanban the columns already use the width, so
 `d` opens the same detail as a modal instead — and you can keep browsing with
 `j`/`k`, or edit with `n`, without closing it.
 
+## Pull request context
+
+If a space's directory has a pull request for its current branch, the board
+shows it: number, state, review decision and CI checks. Worktrees are the case
+this suits best — one branch per space, so one PR per row.
+
+```
+   SPACE                STATUS      NOTE                          PR                   AGENT
+   billing              In Progress —                             #130 ● changes ·     working
+   docs-site            Waiting     —                             #119 ○ ✗             blocked
+ ❯ api-gateway          Waiting     waiting on Dave re: API key   #123 ● approved ✓    idle
+```
+
+`●` open · `○` draft · `◆` merged · `✕` closed, then the review decision, then
+checks `✓` pass `✗` fail `·` running. A row is coloured by whatever most needs
+attention: failing checks first, then changes-requested.
+
+**PR state is context, never control.** It never sets a status, moves a row, or
+reorders anything — the same rule the agent hint follows. You drive status; this
+just tells you what GitHub thinks while you decide.
+
+It reads through the `gh` CLI, so it uses your existing login and needs no
+token. Results are cached beside the board and refreshed when you open it, so
+the board paints instantly and fills in as answers arrive. No `gh`, no repo, no
+PR, or not logged in all look the same: the column simply stays empty.
+
+The short form is also pushed as a `$pr` token, if you want it in the sidebar:
+
+```toml
+[ui.sidebar.spaces]
+rows = [
+  ["state_icon", "workspace"],
+  ["branch", "$status"],
+  ["$pr"],
+]
+```
+
 ## Install
 
 ```sh

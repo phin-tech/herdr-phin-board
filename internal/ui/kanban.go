@@ -159,6 +159,9 @@ func (m *Model) renderCard(sp *space, selected bool, width int) []string {
 			lines = append(lines, "  "+noteStyle.Render(line))
 		}
 	}
+	if pr, ok := m.prFor(sp.Key); ok {
+		lines = append(lines, "  "+prStyled(pr, width-2))
+	}
 	if hint := agentHint(sp); hint != "" {
 		lines = append(lines, "  "+dimStyle.Render(truncate(hint, width-2)))
 	}

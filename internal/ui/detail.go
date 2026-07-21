@@ -86,6 +86,13 @@ func (m *Model) detailLines(sp *space, width int) []string {
 	}
 	lines = append(lines, "")
 
+	// PR context sits between the note and the machine facts: it is about the
+	// work, but unlike the note it is not something you wrote.
+	if pr, ok := m.prFor(sp.Key); ok {
+		lines = append(lines, prDetailLines(pr, width)...)
+		lines = append(lines, "")
+	}
+
 	for _, line := range wrap(abbreviate(sp.Key), width) {
 		lines = append(lines, dimStyle.Render(line))
 	}

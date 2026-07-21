@@ -3,6 +3,8 @@ package ui
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/phin-tech/herdr-phin-board/internal/gh"
 	"github.com/phin-tech/herdr-phin-board/internal/herdr"
 	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
@@ -113,6 +116,10 @@ type row struct {
 type Model struct {
 	client *herdr.Client
 	board  *store.Board
+	// gh and prCache carry pull request context. Both are optional: without
+	// them the board works exactly as before, just without PR columns.
+	gh      *gh.Client
+	prCache *gh.Cache
 
 	live []herdr.Workspace
 	rows []row
@@ -165,15 +172,26 @@ func New(client *herdr.Client, board *store.Board) *Model {
 	in.Prompt = ""
 	in.CharLimit = 240
 
+	// The cache lives beside the board file. PR state is derived, so a missing
+	// or unreadable cache costs one refetch rather than any of the user's work.
+	var cache *gh.Cache
+	if path, err := store.Path(); err == nil {
+		cache = gh.LoadCache(filepath.Dir(path))
+	} else {
+		cache = gh.LoadCache(os.TempDir())
+	}
+
 	return &Model{
-		client: client,
-		board:  board,
-		input:  in,
-		layout: parseLayout(board.Layout),
-		sort:   parseSort(board.TableSort),
-		width:  80,
-		height: 24,
-		events: make(chan herdr.Event, 64),
+		client:  client,
+		board:   board,
+		gh:      gh.New(),
+		prCache: cache,
+		input:   in,
+		layout:  parseLayout(board.Layout),
+		sort:    parseSort(board.TableSort),
+		width:   80,
+		height:  24,
+		events:  make(chan herdr.Event, 64),
 	}
 }
 

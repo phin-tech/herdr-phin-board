@@ -73,7 +73,7 @@ func (m *Model) buildFlat() {
 }
 
 type tableWidths struct {
-	name, status, note, agent, changed int
+	name, status, note, pr, agent, changed int
 }
 
 func (m *Model) tableWidths() tableWidths {
@@ -87,8 +87,16 @@ func (m *Model) tableWidths() tableWidths {
 
 	w := tableWidths{name: 20, status: statusW, agent: 8, changed: 10}
 
-	// Four single-column gaps plus the three-column cursor prefix.
-	fixed := w.name + w.status + w.agent + w.changed + 4 + 3
+	// The PR column only earns its space when something on the board has one.
+	if m.anyPR() {
+		w.pr = 20
+	}
+
+	gaps := 4
+	if w.pr > 0 {
+		gaps++
+	}
+	fixed := w.name + w.status + w.pr + w.agent + w.changed + gaps + 3
 	w.note = m.width - fixed
 	if w.note < 12 {
 		// Give the note room by squeezing the name before dropping columns.
@@ -102,19 +110,40 @@ func (m *Model) tableWidths() tableWidths {
 	return w
 }
 
+// anyPR reports whether the board has PR context worth a column.
+func (m *Model) anyPR() bool {
+	if m.prCache == nil {
+		return false
+	}
+	for _, group := range m.groups {
+		for _, sp := range group {
+			if _, ok := m.prFor(sp.Key); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m *Model) viewTable() string {
 	var b strings.Builder
 	b.WriteString(m.viewHeader())
 	b.WriteString("\n")
 
 	w := m.tableWidths()
-	head := "   " + strings.Join([]string{
+	cols := []string{
 		pad(m.sortMarker(sortName)+"SPACE", w.name),
 		pad(m.sortMarker(sortStatus)+"STATUS", w.status),
 		pad("NOTE", w.note),
+	}
+	if w.pr > 0 {
+		cols = append(cols, pad("PR", w.pr))
+	}
+	cols = append(cols,
 		pad("AGENT", w.agent),
 		pad(m.sortMarker(sortChanged)+"CHANGED", w.changed),
-	}, " ")
+	)
+	head := "   " + strings.Join(cols, " ")
 	b.WriteString(tableHeadStyle.Render(truncate(head, m.width)))
 	b.WriteString("\n")
 
@@ -186,11 +215,17 @@ func (m *Model) renderTableRow(i int, w tableWidths) string {
 		changed = humanAge(sp.UpdatedAt)
 	}
 
-	return prefix + strings.Join([]string{
-		name,
-		statusCell,
-		note,
+	cells := []string{name, statusCell, note}
+	if w.pr > 0 {
+		cell := dimStyle.Render(pad("—", w.pr))
+		if pr, ok := m.prFor(sp.Key); ok {
+			cell = pad(prStyled(pr, w.pr), w.pr)
+		}
+		cells = append(cells, cell)
+	}
+	cells = append(cells,
 		dimStyle.Render(pad(agent, w.agent)),
 		dimStyle.Render(pad(changed, w.changed)),
-	}, " ")
+	)
+	return prefix + strings.Join(cells, " ")
 }

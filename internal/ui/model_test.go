@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"time"
+
 	"fmt"
+	"github.com/phin-tech/herdr-phin-board/internal/gh"
 	"strings"
 	"testing"
 
@@ -1661,5 +1664,143 @@ func TestManagerMarksTheDefault(t *testing.T) {
 	}
 	if !strings.Contains(out, "D set default") {
 		t.Fatalf("the manager does not advertise D:\n%s", out)
+	}
+}
+
+func withPR(m *Model, key string, pr gh.PR) {
+	if pr.Fetched.IsZero() {
+		pr.Fetched = time.Now()
+	}
+	m.prCache.Put(key, pr)
+	m.rebuild()
+}
+
+// PR state is context. It must never change where a space sits.
+func TestPRNeverChangesGrouping(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3")) // Waiting
+
+	before := m.board.Entries["/tmp/api"]
+	withPR(m, "/tmp/api", gh.PR{Number: 9, State: "MERGED", Checks: gh.ChecksFail})
+
+	after := m.board.Entries["/tmp/api"]
+	if after.Status != before.Status {
+		t.Fatalf("a merged PR changed the status: %q -> %q", before.Status, after.Status)
+	}
+	if after.Order != before.Order {
+		t.Fatal("a PR changed the manual order")
+	}
+	// And the row is still in the group the user put it in.
+	found := false
+	for _, sp := range m.groups["waiting"] {
+		if sp.Key == "/tmp/api" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the space left the group the user chose")
+	}
+}
+
+func TestPRColumnAppearsOnlyWhenThereIsAPR(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 130, 20
+	send(t, m, liveWorkspaces())
+	send(t, m, key("K")) // table
+
+	if m.tableWidths().pr != 0 {
+		t.Fatal("the PR column took space with no PRs on the board")
+	}
+	if strings.Contains(m.View(), " PR ") {
+		t.Fatal("the PR heading rendered with no PRs")
+	}
+
+	withPR(m, "/tmp/api", gh.PR{Number: 42, State: "OPEN", Review: "APPROVED", Checks: gh.ChecksPass})
+	if m.tableWidths().pr == 0 {
+		t.Fatal("the PR column did not appear")
+	}
+	out := m.View()
+	for _, want := range []string{"PR", "#42", "approved"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("table is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPRRendersInDetailPane(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 120, 24
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{
+		Number: 7, State: "OPEN", Review: "CHANGES_REQUESTED",
+		Checks: gh.ChecksFail, Title: "Rework the parser",
+	})
+	selectSpace(t, m, "/tmp/api")
+
+	out := m.View()
+	for _, want := range []string{"#7", "changes", "Rework the parser"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("detail pane is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestPRShortFormForSidebar(t *testing.T) {
+	cases := []struct {
+		pr   gh.PR
+		want string
+	}{
+		{gh.PR{Number: 1, State: "OPEN", Checks: gh.ChecksPass}, "#1 ●✓"},
+		{gh.PR{Number: 2, State: "OPEN", IsDraft: true, Checks: gh.ChecksFail}, "#2 ○✗"},
+		{gh.PR{Number: 3, State: "MERGED"}, "#3 ◆"},
+		{gh.PR{Number: 4, State: "CLOSED", Checks: gh.ChecksPending}, "#4 ✕·"},
+	}
+	for _, tc := range cases {
+		if got := prShort(tc.pr); got != tc.want {
+			t.Fatalf("prShort(%+v) = %q, want %q", tc.pr, got, tc.want)
+		}
+	}
+}
+
+// A merged branch loses its PR; the cached badge must go with it.
+func TestApplyPRsForgetsMissing(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{Number: 11, State: "OPEN"})
+
+	m.applyPRs(prLoadedMsg{missing: []string{"/tmp/api"}})
+
+	if _, ok := m.prFor("/tmp/api"); ok {
+		t.Fatal("a PR that no longer exists is still cached")
+	}
+}
+
+// Spaces that left the board should not accumulate in the cache.
+func TestApplyPRsPrunesUnknownSpaces(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.prCache.Put("/tmp/long-gone", gh.PR{Number: 1, Fetched: time.Now()})
+
+	m.applyPRs(prLoadedMsg{})
+
+	if _, ok := m.prFor("/tmp/long-gone"); ok {
+		t.Fatal("the cache kept a space that is not on the board")
+	}
+}
+
+// Only stale entries are refetched, so reopening the board is not a burst of
+// network calls.
+func TestLoadPRsSkipsFreshEntries(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	for _, k := range []string{"/tmp/api", "/tmp/web"} {
+		m.prCache.Put(k, gh.PR{Number: 1, Fetched: time.Now()})
+	}
+	m.rebuild()
+
+	if cmd := m.loadPRs(); cmd != nil {
+		t.Fatal("loadPRs queued work with everything fresh")
 	}
 }
