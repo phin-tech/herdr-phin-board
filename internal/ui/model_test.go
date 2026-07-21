@@ -1506,3 +1506,99 @@ func TestRenameShowsItsOwnPrompt(t *testing.T) {
 		t.Fatalf("no rename prompt in the footer:\n%s", out)
 	}
 }
+
+// tokenPushes replays what syncTokens would send, without a socket.
+func tokenPushes(m *Model) map[string]*string {
+	out := map[string]*string{}
+	for _, group := range m.groups {
+		for _, sp := range group {
+			if !sp.Live {
+				continue
+			}
+			st, ok := m.board.StatusByID(sp.StatusID)
+			if !ok {
+				continue
+			}
+			var value *string
+			if st.ID != m.board.DefaultStatusID() {
+				label := st.Label
+				value = &label
+			}
+			for _, id := range sp.WorkspaceIDs {
+				out[id] = value
+			}
+		}
+	}
+	return out
+}
+
+// The default status is where untouched spaces sit, so badging it would put
+// the same word on every sidebar row and say nothing.
+func TestDefaultStatusClearsItsToken(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+
+	pushes := tokenPushes(m)
+	if len(pushes) != 2 {
+		t.Fatalf("want a push per live workspace, got %d", len(pushes))
+	}
+	for id, v := range pushes {
+		if v != nil {
+			t.Fatalf("%s got token %q, want it cleared", id, *v)
+		}
+	}
+}
+
+func TestNonDefaultStatusSetsItsToken(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3")) // Waiting
+
+	pushes := tokenPushes(m)
+	if v := pushes["w1"]; v == nil || *v != "Waiting" {
+		t.Fatalf("w1 token is %v, want Waiting", v)
+	}
+	// The untouched one stays clear.
+	if v := pushes["w2"]; v != nil {
+		t.Fatalf("w2 got token %q, want it cleared", *v)
+	}
+}
+
+// Moving back to the default must clear the badge, not leave a stale one.
+func TestReturningToDefaultClearsTheToken(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3"))
+	if v := tokenPushes(m)["w1"]; v == nil {
+		t.Fatal("setup: expected a token")
+	}
+
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("1")) // back to Todo
+	if v := tokenPushes(m)["w1"]; v != nil {
+		t.Fatalf("token %q survived the return to default", *v)
+	}
+}
+
+// Which status counts as default follows the board's order, so reordering
+// changes which one is suppressed.
+func TestSuppressionFollowsStatusOrder(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	// File it as Todo explicitly. An untouched space has no stored status at
+	// all, so it follows whichever status is default rather than staying put.
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("1"))
+	if v := tokenPushes(m)["w1"]; v != nil {
+		t.Fatalf("Todo is the default, so it should be cleared; got %q", *v)
+	}
+
+	m.board.MoveStatus("todo", 1) // In Progress becomes first
+	m.rebuild()
+
+	if v := tokenPushes(m)["w1"]; v == nil || *v != "Todo" {
+		t.Fatalf("w1 token is %v, want Todo once it is no longer default", v)
+	}
+}

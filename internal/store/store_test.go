@@ -144,3 +144,32 @@ func TestKeyCanonicalizes(t *testing.T) {
 		t.Fatalf("empty path should stay empty, got %q", got)
 	}
 }
+
+// The plugin and a hand-run binary must agree on one file, or a status set in
+// one would be invisible to the other.
+func TestPathMatchesTheHerdrStateLayout(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
+	t.Setenv("XDG_STATE_HOME", "/tmp/state")
+
+	got, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/tmp/state/herdr/plugins/" + PluginID + "/board.json"
+	if got != want {
+		t.Fatalf("Path() = %q, want %q", got, want)
+	}
+}
+
+func TestInjectedStateDirWins(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", "/injected")
+	t.Setenv("XDG_STATE_HOME", "/tmp/state")
+
+	got, err := Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/injected/board.json" {
+		t.Fatalf("Path() = %q, want the injected dir to win", got)
+	}
+}

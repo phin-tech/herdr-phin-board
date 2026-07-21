@@ -68,17 +68,29 @@ func DefaultStatuses() []Status {
 	}
 }
 
-// Path returns the board file location, preferring the plugin state dir Herdr
-// injects and falling back to the user config dir for standalone runs.
+// PluginID must match herdr-plugin.toml, since Herdr keys plugin state by it.
+const PluginID = "phin-board"
+
+// Path returns the board file location.
+//
+// Herdr injects HERDR_PLUGIN_STATE_DIR when it launches the plugin. Running the
+// binary by hand -- the documented development loop -- has no such variable, so
+// the same location is reconstructed rather than inventing a second file that
+// would silently diverge from the one the plugin actually uses.
 func Path() (string, error) {
 	if dir := os.Getenv("HERDR_PLUGIN_STATE_DIR"); dir != "" {
 		return filepath.Join(dir, "board.json"), nil
 	}
-	base, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
+
+	state := os.Getenv("XDG_STATE_HOME")
+	if state == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		state = filepath.Join(home, ".local", "state")
 	}
-	return filepath.Join(base, "herdr-board", "board.json"), nil
+	return filepath.Join(state, "herdr", "plugins", PluginID, "board.json"), nil
 }
 
 // Load reads the board, creating an empty one if the file does not exist yet.

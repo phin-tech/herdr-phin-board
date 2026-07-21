@@ -230,26 +230,35 @@ func waitForEvent(ch chan herdr.Event) tea.Cmd {
 func (m *Model) syncTokens() tea.Cmd {
 	type push struct {
 		workspaceID string
-		value       string
+		// value is nil for the default status, which clears the token: every
+		// untouched space sits there, so a badge for it would be noise on
+		// every row and would not distinguish filed from untouched.
+		value *string
 	}
 	var pushes []push
-	for _, r := range m.rows {
-		if r.kind != rowSpace || !r.space.Live {
-			continue
-		}
-		st, ok := m.board.StatusByID(r.space.StatusID)
-		if !ok {
-			continue
-		}
-		for _, id := range r.space.WorkspaceIDs {
-			pushes = append(pushes, push{id, st.Label})
+	for _, group := range m.groups {
+		for _, sp := range group {
+			if !sp.Live {
+				continue
+			}
+			st, ok := m.board.StatusByID(sp.StatusID)
+			if !ok {
+				continue
+			}
+			var value *string
+			if st.ID != m.board.DefaultStatusID() {
+				label := st.Label
+				value = &label
+			}
+			for _, id := range sp.WorkspaceIDs {
+				pushes = append(pushes, push{id, value})
+			}
 		}
 	}
 	client := m.client
 	return func() tea.Msg {
 		for _, p := range pushes {
-			value := p.value
-			_ = client.ReportToken(p.workspaceID, "status", &value)
+			_ = client.ReportToken(p.workspaceID, "status", p.value)
 		}
 		return tokensSyncedMsg{}
 	}

@@ -65,22 +65,28 @@ func sync(client *herdr.Client, board *store.Board) error {
 	if err != nil {
 		return err
 	}
-	var applied int
+	var applied, cleared int
 	for _, ws := range workspaces {
-		entry, ok := board.Entries[store.Key(ws.Cwd)]
-		if !ok {
-			continue
+		// A workspace with no entry, or one sitting in the default status, gets
+		// no badge. Both cases must still be reported so a stale token from an
+		// earlier status is cleared rather than left behind for ever.
+		var value *string
+		if entry, ok := board.Entries[store.Key(ws.Cwd)]; ok {
+			if status, ok := board.StatusByID(entry.Status); ok && status.ID != board.DefaultStatusID() {
+				label := status.Label
+				value = &label
+			}
 		}
-		status, ok := board.StatusByID(entry.Status)
-		if !ok {
-			continue
+		if value == nil {
+			cleared++
+		} else {
+			applied++
 		}
-		label := status.Label
-		if err := client.ReportToken(ws.ID, "status", &label); err != nil {
+
+		if err := client.ReportToken(ws.ID, "status", value); err != nil {
 			return err
 		}
-		applied++
 	}
-	fmt.Printf("synced %d of %d workspaces\n", applied, len(workspaces))
+	fmt.Printf("synced %d of %d workspaces (%d cleared as default)\n", applied, len(workspaces), cleared)
 	return nil
 }
