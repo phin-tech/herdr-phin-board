@@ -1,32 +1,32 @@
-id = "board"
-name = "Board"
+id = "phin-board"
+name = "Phin Board"
 version = "0.1.0"
 min_herdr_version = "0.7.4"
 description = "A status board over your spaces: todo, in progress, waiting on someone, done — plus any status you invent."
 platforms = ["macos", "linux"]
 
 [[build]]
-command = ["go", "build", "-o", "bin/herdr-board", "./cmd/herdr-board"]
+command = ["go", "build", "-o", "bin/herdr-phin-board", "./cmd/herdr-phin-board"]
 
 [[actions]]
 id = "open"
-title = "Open Board"
+title = "Open Phin Board"
 contexts = ["global", "workspace"]
 command = ["sh", "action-open.sh"]
 
 [[panes]]
-id = "board"
+id = "phin-board"
 title = "Board"
 placement = "popup"
 width = "80%"
 height = "85%"
 # Pane commands are resolved against PATH, not the plugin root, so the binary
 # has to be named absolutely via the injected plugin root.
-command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-board"']
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board"']
 
 # Workspace tokens do not survive a server restart, but the board file does.
 # Re-applying the stored status when a workspace appears keeps the $status
 # badge in the Spaces sidebar correct without the TUI ever being opened.
 [[events]]
 on = "workspace.created"
-command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-board" sync']
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sync']

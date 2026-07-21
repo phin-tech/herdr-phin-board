@@ -1,4 +1,4 @@
-# herdr-board
+# herdr-phin-board
 
 A [Herdr](https://herdr.dev) plugin: a status board over your spaces, in a popup,
 on a key.
@@ -59,7 +59,7 @@ it if you want the room back. In kanban the columns already use the width, so
 
 ```sh
 git clone https://github.com/phin-tech/herdr-phin-board
-herdr plugin link ./herdr-board
+herdr plugin link ./herdr-phin-board
 ```
 
 Then bind a key in `~/.config/herdr/config.toml`:
@@ -68,7 +68,7 @@ Then bind a key in `~/.config/herdr/config.toml`:
 [[keys.command]]
 key = "prefix+d"
 type = "plugin_action"
-command = "board.open"
+command = "phin-board.open"
 description = "Space board"
 ```
 
@@ -147,16 +147,16 @@ Several workspaces open on the same directory share one row, because a status
 belongs to the project rather than the window.
 
 ```sh
-herdr-board sync    # re-apply stored statuses to workspace tokens
-herdr-board prune   # forget entries whose directory no longer exists
+herdr-phin-board sync    # re-apply stored statuses to workspace tokens
+herdr-phin-board prune   # forget entries whose directory no longer exists
 ```
 
 ## Development
 
 ```sh
 go test ./...
-go build -o bin/herdr-board ./cmd/herdr-board
-./bin/herdr-board          # runs against the live session via $HERDR_SOCKET_PATH
+go build -o bin/herdr-phin-board ./cmd/herdr-phin-board
+./bin/herdr-phin-board          # runs against the live session via $HERDR_SOCKET_PATH
 ```
 
 Run the binary directly from any pane inside a Herdr session — it doesn't need

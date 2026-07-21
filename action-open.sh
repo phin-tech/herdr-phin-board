@@ -4,5 +4,5 @@
 set -eu
 
 exec "${HERDR_BIN_PATH:-herdr}" plugin pane open \
-  --plugin "${HERDR_PLUGIN_ID:-board}" \
-  --entrypoint board
+  --plugin "${HERDR_PLUGIN_ID:-phin-board}" \
+  --entrypoint phin-board
