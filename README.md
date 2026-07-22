@@ -11,15 +11,16 @@ and what's parked because you're waiting on a person or something outside the
 machine.
 
 ```
- ▾ List                                                              4 live · archive hidden
+ ▾ List                                                    🔔 1 space · 4 live · archive hidden
 
  ▾ Triage (0)
+ ▾ Todo (0)
  ▾ In Progress (2)
-   herdr-phin-board       ~/src/github.com/phin-tech/herdr-phin-board                 ·idle
-   dev-stream             ~/src/github.com/phin-tech/dev-stream                    ·working
+   dev-stream             ~/src/github.com/phin-tech/dev-stream                      ·working
+   herdr-phin-board       ~/src/github.com/phin-tech/herdr-phin-board                   ·idle
  ▾ Waiting (2)
-   docs-site              vendor SLA response, chased 2026-07-18                   ·blocked
- ❯ api-gateway            waiting on Dave re: API key                                 ·idle
+   🔔 docs-site           vendor SLA response, chased 2026-07-18                     ·blocked
+ ❯ api-gateway            waiting on Dave re: API key                                   ·idle
  ▸ Done (0)
 
  1 Triage  2 Todo  3 In Progress  4 Waiting  5 Done
