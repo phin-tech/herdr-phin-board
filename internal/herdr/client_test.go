@@ -435,3 +435,44 @@ func TestPluginStateDirIsNotRequired(t *testing.T) {
 	}
 	_ = os.Getenv("HERDR_PLUGIN_STATE_DIR")
 }
+
+// worktree.list answers for a whole repository, which is what lets one call
+// resolve every space sharing it.
+func TestWorktreesParsesBranches(t *testing.T) {
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{
+		"worktrees": []map[string]any{
+			{"branch": "main", "path": "/tmp/repo", "label": "repo", "is_linked_worktree": false},
+			{"branch": "demo", "path": "/tmp/repo-demo", "label": "repo", "is_linked_worktree": true, "open_workspace_id": "w7"},
+		},
+	})
+
+	c, _ := New()
+	got, err := c.Worktrees("/tmp/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d worktrees, want both", len(got))
+	}
+	if got[0].Branch != "main" || got[1].Branch != "demo" {
+		t.Fatalf("branches = %+v", got)
+	}
+	if !got[1].IsLinked || got[1].OpenWorkspaceID != "w7" {
+		t.Fatalf("the linked worktree lost its detail: %+v", got[1])
+	}
+	if params := herdrtest.Params(t, f.LastAny(t)); params["cwd"] != "/tmp/repo" {
+		t.Fatalf("params = %+v", params)
+	}
+}
+
+// A directory that is not a repository is an ordinary answer, not a crash.
+func TestWorktreesOnANonRepoErrors(t *testing.T) {
+	f := herdrtest.Start(t)
+	f.Fail("not_git_worktree", "requires a workspace inside a Git work tree")
+
+	c, _ := New()
+	if _, err := c.Worktrees("/tmp/plain"); err == nil {
+		t.Fatal("a non-repository was reported as success")
+	}
+}

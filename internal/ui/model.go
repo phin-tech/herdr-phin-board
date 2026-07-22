@@ -122,6 +122,9 @@ type Model struct {
 	// them the board works exactly as before, just without PR columns.
 	gh      *gh.Client
 	prCache *gh.Cache
+	// branches maps a space to what is checked out in it, from Herdr's worktree
+	// list -- the session snapshot does not carry it.
+	branches map[string]string
 	// alerts is what the watcher recorded while the board was closed.
 	alerts   *alert.Store
 	stateDir string
@@ -205,6 +208,7 @@ func New(client *herdr.Client, board *store.Board) *Model {
 		gh:       gh.New(),
 		prCache:  cache,
 		alerts:   alert.Load(stateDir),
+		branches: map[string]string{},
 		stateDir: stateDir,
 		input:    in,
 		layout:   parseLayout(board.Layout),

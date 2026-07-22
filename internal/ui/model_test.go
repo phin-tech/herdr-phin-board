@@ -2444,3 +2444,66 @@ func TestReorderWithNoLiveSpacesSaysSo(t *testing.T) {
 		t.Fatal("no explanation given")
 	}
 }
+
+func TestBranchMapSkipsDetachedAndEmpty(t *testing.T) {
+	got := branchMap([]herdr.Worktree{
+		{Branch: "main", Path: "/tmp/repo"},
+		{Branch: "demo", Path: "/tmp/repo-demo", IsLinked: true},
+		{Branch: "abc123", Path: "/tmp/detached", IsDetached: true},
+		{Branch: "", Path: "/tmp/bare"},
+	})
+
+	if got["/tmp/repo"] != "main" || got["/tmp/repo-demo"] != "demo" {
+		t.Fatalf("branches = %+v", got)
+	}
+	// A detached HEAD has a commit, not a branch; a bare SHA in a branch
+	// column reads as a bug.
+	if _, ok := got["/tmp/detached"]; ok {
+		t.Fatal("a detached checkout was given a branch")
+	}
+	if _, ok := got["/tmp/bare"]; ok {
+		t.Fatal("a checkout with no branch was included")
+	}
+}
+
+func TestBranchShowsInDetailAndTable(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 130, 24
+	send(t, m, liveWorkspaces())
+
+	// No branches known: the column stays away rather than showing dashes.
+	send(t, m, key("K")) // table
+	if m.tableWidths().branch != 0 {
+		t.Fatal("the branch column took space with no branches")
+	}
+
+	m.branches["/tmp/api"] = "feature/thing"
+	m.rebuild()
+
+	if m.tableWidths().branch == 0 {
+		t.Fatal("the branch column did not appear")
+	}
+	if out := m.View(); !strings.Contains(out, "feature/thing") || !strings.Contains(out, "BRANCH") {
+		t.Fatalf("the table does not show the branch:\n%s", out)
+	}
+
+	// And the detail pane names it too.
+	send(t, m, key("K"))
+	send(t, m, key("K")) // back to the list
+	selectSpace(t, m, "/tmp/api")
+	if out := m.View(); !strings.Contains(out, "feature/thing") {
+		t.Fatalf("the detail pane does not show the branch:\n%s", out)
+	}
+}
+
+// A space with no branch must not borrow another's.
+func TestBranchIsPerSpace(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.branches["/tmp/api"] = "main"
+	m.rebuild()
+
+	if m.branchFor("/tmp/web") != "" {
+		t.Fatalf("web borrowed a branch: %q", m.branchFor("/tmp/web"))
+	}
+}

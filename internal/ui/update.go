@@ -24,7 +24,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuild()
 		// The space list is what defines which directories to ask GitHub
 		// about, so PR loading is kicked off from here rather than Init.
-		return m, tea.Batch(m.syncTokens(), m.loadPRs())
+		return m, tea.Batch(m.syncTokens(), m.loadPRs(), m.loadBranches())
+
+	case branchesMsg:
+		for k, v := range msg {
+			m.branches[k] = v
+		}
+		m.rebuild()
+		return m, nil
 
 	case prLoadedMsg:
 		return m, m.applyPRs(msg)

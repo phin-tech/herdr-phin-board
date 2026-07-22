@@ -222,3 +222,29 @@ func (c *Client) MoveWorkspace(id string, index int) error {
 		"insert_index": index,
 	}, nil)
 }
+
+// Worktree is one checkout of a repository.
+type Worktree struct {
+	Branch string `json:"branch"`
+	Path   string `json:"path"`
+	Label  string `json:"label"`
+	// OpenWorkspaceID is set when a workspace currently has this checkout open.
+	OpenWorkspaceID string `json:"open_workspace_id"`
+	IsLinked        bool   `json:"is_linked_worktree"`
+	IsDetached      bool   `json:"is_detached"`
+}
+
+// Worktrees lists every checkout of the repository containing cwd.
+//
+// The call is per repository rather than per directory, so one request resolves
+// every space sharing a repo -- which is the common case, since a worktree per
+// branch is exactly the workflow this suits.
+func (c *Client) Worktrees(cwd string) ([]Worktree, error) {
+	var res struct {
+		Worktrees []Worktree `json:"worktrees"`
+	}
+	if err := c.Request("worktree.list", map[string]any{"cwd": cwd}, &res); err != nil {
+		return nil, err
+	}
+	return res.Worktrees, nil
+}

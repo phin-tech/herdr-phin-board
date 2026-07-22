@@ -128,6 +128,9 @@ func (m *Model) detailLines(sp *space, width int) []detailLine {
 	for _, line := range wrap(abbreviate(sp.Key), width) {
 		lines = append(lines, plain(dimStyle.Render(line))...)
 	}
+	if branch := m.branchFor(sp.Key); branch != "" {
+		lines = append(lines, plain(branchStyle.Render(truncate("⎇ "+branch, width)))...)
+	}
 
 	where := "archived"
 	if sp.Live {

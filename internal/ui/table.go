@@ -76,7 +76,7 @@ func (m *Model) buildFlat() {
 }
 
 type tableWidths struct {
-	name, status, note, pr, agent, changed int
+	name, status, note, branch, pr, agent, changed int
 }
 
 func (m *Model) tableWidths() tableWidths {
@@ -90,16 +90,21 @@ func (m *Model) tableWidths() tableWidths {
 
 	w := tableWidths{name: 20, status: statusW, agent: 8, changed: 10}
 
-	// The PR column only earns its space when something on the board has one.
+	// A column only earns its space when something on the board would fill it.
 	if m.anyPR() {
 		w.pr = 24
 	}
+	if m.anyBranch() {
+		w.branch = 16
+	}
 
 	gaps := 4
-	if w.pr > 0 {
-		gaps++
+	for _, optional := range []int{w.pr, w.branch} {
+		if optional > 0 {
+			gaps++
+		}
 	}
-	fixed := w.name + w.status + w.pr + w.agent + w.changed + gaps + 3
+	fixed := w.name + w.status + w.branch + w.pr + w.agent + w.changed + gaps + 3
 	w.note = m.width - fixed
 	if w.note < 12 {
 		// Give the note room by squeezing the name before dropping columns.
@@ -138,6 +143,9 @@ func (m *Model) viewTable() string {
 		pad(m.sortMarker(sortName)+"SPACE", w.name),
 		pad(m.sortMarker(sortStatus)+"STATUS", w.status),
 		pad("NOTE", w.note),
+	}
+	if w.branch > 0 {
+		cols = append(cols, pad("BRANCH", w.branch))
 	}
 	if w.pr > 0 {
 		cols = append(cols, pad("PR", w.pr))
@@ -223,6 +231,13 @@ func (m *Model) renderTableRow(i int, w tableWidths) string {
 	}
 
 	cells := []string{name, statusCell, note}
+	if w.branch > 0 {
+		cell := dimStyle.Render(pad("—", w.branch))
+		if b := m.branchFor(sp.Key); b != "" {
+			cell = branchStyle.Render(pad(b, w.branch))
+		}
+		cells = append(cells, cell)
+	}
 	if w.pr > 0 {
 		cell := dimStyle.Render(pad("—", w.pr))
 		if pr, ok := m.prFor(sp.Key); ok {

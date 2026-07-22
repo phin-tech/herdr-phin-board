@@ -20,6 +20,7 @@ var (
 	keyStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("111"))
 	focusStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
 	grabStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("213")).Bold(true)
+	branchStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("108"))
 )
 
 // View renders the board.
