@@ -52,6 +52,13 @@ func run(args []string) error {
 			}
 			return watch.Run(context.Background(), dir, config.Load().PollInterval)
 
+		case "startup":
+			// Herdr's [[startup]] hook: runs once after the server restores a
+			// session, and again after a live handoff. It restores this
+			// plugin's state and exits -- the watcher it starts is a detached
+			// process of its own, not this hook lingering as a daemon.
+			return startup()
+
 		case "prune":
 			board, err := store.Load()
 			if err != nil {
@@ -81,7 +88,7 @@ func run(args []string) error {
 		case "sync":
 			return sync(client, board)
 		default:
-			return fmt.Errorf("unknown command %q (want: sync, watch, config, version, prune)", args[0])
+			return fmt.Errorf("unknown command %q (want: sync, watch, startup, config, version, prune)", args[0])
 		}
 	}
 
@@ -198,5 +205,31 @@ func showConfig(args []string) error {
 	for _, p := range s.Problems {
 		fmt.Fprintln(os.Stderr, "warning:", p)
 	}
+	return nil
+}
+
+// startup restores what a new server does not know about this plugin, and gets
+// the background watcher running.
+//
+// Before this, the watcher only existed once the board had been opened, so a
+// machine that had not opened it heard nothing about a failing check. Herdr
+// starting is the right moment for that instead.
+func startup() error {
+	client, err := herdr.New()
+	if err != nil {
+		return err
+	}
+	board, err := store.Load()
+	if err != nil {
+		return err
+	}
+
+	// Workspace tokens do not survive a restart, so the badges are reapplied
+	// from the board file, which does.
+	if err := sync(client, board); err != nil {
+		return err
+	}
+
+	spawnWatcher()
 	return nil
 }

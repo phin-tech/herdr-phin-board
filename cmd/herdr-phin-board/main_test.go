@@ -190,3 +190,61 @@ func TestConfigInitWritesATemplate(t *testing.T) {
 		t.Fatal("a second --init overwrote the settings")
 	}
 }
+
+// The startup hook restores badges a new server does not know about. It must
+// also be safe to run twice, since Herdr runs it again after a live handoff.
+func TestStartupRestoresBadges(t *testing.T) {
+	raw := t.TempDir()
+	key := store.Key(raw)
+	state := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", state)
+
+	f := herdrtest.Start(t)
+	f.Route(map[string]any{
+		"session.snapshot": map[string]any{
+			"snapshot": map[string]any{
+				"workspaces": []map[string]any{
+					{"workspace_id": "w1", "label": "api", "active_tab_id": "w1:t1"},
+				},
+				"panes": []map[string]any{
+					{"pane_id": "w1:p1", "workspace_id": "w1", "tab_id": "w1:t1", "cwd": raw},
+				},
+			},
+		},
+	})
+
+	board, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.SetStatus(key, "waiting", "api")
+	if err := board.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run([]string{"startup"}); err != nil {
+		t.Fatal(err)
+	}
+
+	params := herdrtest.Params(t, f.Last(t, "workspace.report_metadata"))
+	tokens := params["tokens"].(map[string]any)
+	if tokens["status"] != "Waiting" {
+		t.Fatalf("startup did not restore the badge: %+v", tokens)
+	}
+
+	// Again, as a live handoff would.
+	if err := run([]string{"startup"}); err != nil {
+		t.Fatalf("a second startup failed: %v", err)
+	}
+}
+
+// Startup runs before anything else, so a Herdr that is not answering must be
+// reported rather than leaving the hook to look like it worked.
+func TestStartupFailsWithoutHerdr(t *testing.T) {
+	t.Setenv("HERDR_SOCKET_PATH", "")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+
+	if err := run([]string{"startup"}); err == nil {
+		t.Fatal("startup claimed to work with no Herdr")
+	}
+}

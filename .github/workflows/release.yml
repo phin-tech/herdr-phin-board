@@ -114,7 +114,18 @@ jobs:
             exit 0
           fi
 
-          sed -i "0,/^version = \".*\"$/s//version = \"${version}\"/" herdr-plugin.toml
+          # Spelled out rather than sed's empty-pattern reuse, which BSD sed
+          # does not honour -- this should behave the same wherever it runs.
+          python3 - "$version" <<'PY'
+          import pathlib, re, sys
+          want = sys.argv[1]
+          path = pathlib.Path("herdr-plugin.toml")
+          text = path.read_text()
+          out, n = re.subn(r'(?m)^version = "[^"]*"$', f'version = "{want}"', text, count=1)
+          if n != 1:
+              raise SystemExit("no version line in herdr-plugin.toml")
+          path.write_text(out)
+          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add herdr-plugin.toml

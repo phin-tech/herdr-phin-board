@@ -242,11 +242,13 @@ func TestSendToAgentAndFocusUseTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := f.LastAny(t)
-	if req.Method != "agent.send" {
-		t.Fatalf("method = %q", req.Method)
+	// Not agent.prompt: that submits, and the point is that the person does.
+	// Not agent.send_keys: those are logical keys, not text.
+	if req.Method != "pane.send_text" {
+		t.Fatalf("method = %q, want pane.send_text", req.Method)
 	}
 	params := herdrtest.Params(t, req)
-	if params["target"] != "w1:p1" || params["text"] != "hello" {
+	if params["pane_id"] != "w1:p1" || params["text"] != "hello" {
 		t.Fatalf("params = %+v", params)
 	}
 

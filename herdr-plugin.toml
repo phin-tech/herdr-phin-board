@@ -1,7 +1,7 @@
 id = "phin-board"
 name = "Phin Board"
-version = "0.1.0"
-min_herdr_version = "0.7.4"
+version = "0.2.0"
+min_herdr_version = "0.7.5"
 description = "A status board over your spaces: todo, in progress, waiting on someone, done — plus any status you invent."
 platforms = ["macos", "linux"]
 
@@ -25,9 +25,14 @@ height = "85%"
 # has to be named absolutely via the injected plugin root.
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board"']
 
-# Workspace tokens do not survive a server restart, but the board file does.
-# Re-applying the stored status when a workspace appears keeps the $status
-# badge in the Spaces sidebar correct without the TUI ever being opened.
+# Runs once after the server restores a session, and again after a live
+# handoff. Reapplies the $status badges, which do not survive a restart, and
+# starts the background watcher -- so pull request notifications arrive whether
+# or not the board has ever been opened. Requires Herdr 0.7.5.
+[[startup]]
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" startup']
+
+# A workspace opened later was not there at startup, so it needs its badge too.
 [[events]]
 on = "workspace.created"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sync']

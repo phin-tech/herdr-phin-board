@@ -155,10 +155,19 @@ func (c *Client) Agents() ([]Agent, error) {
 
 // SendToAgent types text into an agent's input without submitting it, so the
 // last word stays with the person: they read it, add to it, and press enter.
+//
+// Herdr 0.7.5 removed agent.send. Of what replaced it, agent.prompt submits
+// atomically -- the one thing this must not do -- and agent.send_keys carries
+// logical keys rather than text. pane.send_text is the one the documentation
+// describes as typing without submitting, and it is unchanged across protocol
+// 16 and 17, so the board works either side of that release.
+//
+// Typing into the wrong pane is guarded upstream: only panes Herdr reports as
+// agents are ever offered as a target.
 func (c *Client) SendToAgent(paneID, text string) error {
-	return c.Request("agent.send", map[string]any{
-		"target": paneID,
-		"text":   text,
+	return c.Request("pane.send_text", map[string]any{
+		"pane_id": paneID,
+		"text":    text,
 	}, nil)
 }
 

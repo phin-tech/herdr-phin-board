@@ -154,8 +154,10 @@ collapsed group or an off-screen column is still visible. The detail view spells
 out what happened, and names the checks that are failing rather than just saying
 some are.
 
-The watcher starts itself when you open the board and keeps running after you
-close it. It holds an event subscription, which does double duty: Herdr closing
+The watcher starts when Herdr does, through a `[[startup]]` hook, and again
+after a live handoff — so a pull request going red reaches you whether or not
+you have opened the board. Opening the board starts one too, if none is
+running. It holds an event subscription, which does double duty: Herdr closing
 drops the connection so the watcher exits at once rather than discovering the
 loss on its next tick, and a workspace appearing or closing nudges it to poll
 then instead of waiting out the timer. A burst of events still costs one poll.
@@ -210,7 +212,7 @@ shadows a built-in, so check the config reference before picking another —
 `prefix+b` is `toggle_sidebar` and `prefix+k` is `focus_pane_up`, both easy to
 lose by accident.
 
-Requires Herdr 0.7.4+. Go is optional: without it the install falls back to a
+Requires Herdr 0.7.5+. Go is optional: without it the install falls back to a
 prebuilt macOS or Linux binary.
 
 ## Status in the Spaces sidebar
@@ -222,9 +224,12 @@ it can show in Herdr's native Spaces sidebar too. Add `$status` to a row:
 [ui.sidebar.spaces]
 rows = [
   ["state_icon", "workspace"],
-  ["$status"],
+  ["branch", { token = "$status", fg = "yellow", bold = true }],
 ]
 ```
+
+Herdr 0.7.5 added per-token styling, so a row entry can be
+`{ token, fg, bold, dim }` instead of a plain string.
 
 Tokens don't survive a server restart, but the board file does — a
 `workspace.created` hook re-applies the stored status whenever a space appears,
@@ -327,6 +332,7 @@ belongs to the project rather than the window.
 
 ```sh
 herdr-phin-board sync            # re-apply stored statuses to workspace tokens
+herdr-phin-board startup         # what Herdr's [[startup]] hook runs
 herdr-phin-board watch           # poll PRs and notify (the board starts this for you)
 herdr-phin-board config          # show the settings in force
 herdr-phin-board config --init   # write a commented settings template
