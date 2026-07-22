@@ -27,6 +27,23 @@ jobs:
             exit 1
           fi
 
+      # A broken workflow file otherwise only shows up when a release attempt
+      # dies, with no job and no log to explain it.
+      - name: workflows parse
+        run: |
+          python3 - <<'PY'
+          import glob, sys, yaml
+          bad = False
+          for path in sorted(glob.glob(".github/workflows/*.yml")):
+              try:
+                  yaml.safe_load(open(path))
+                  print(f"{path}: ok")
+              except Exception as exc:
+                  print(f"{path}: {exc}", file=sys.stderr)
+                  bad = True
+          sys.exit(1 if bad else 0)
+          PY
+
       - run: go vet ./...
       - run: go test -race ./...
 
