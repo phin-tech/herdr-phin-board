@@ -115,6 +115,9 @@ func (m *Model) viewHeader() string {
 
 	// The title names the current view and opens the switcher.
 	left := " " + titleStyle.Render(m.title())
+	if st, ok := m.board.StatusByID(m.statusFilter); ok {
+		left += lipgloss.NewStyle().Foreground(lipgloss.Color(st.Color)).Render("  " + st.Label + " only")
+	}
 	if m.filter != "" {
 		left += dimStyle.Render(fmt.Sprintf("  /%s", m.filter))
 	}
@@ -347,6 +350,8 @@ func (m *Model) viewHelp() string {
 		{"R", "rename the space — renames the Herdr workspace too"},
 		{"m", "type a message into that space's agent, then go there to send it"},
 		{"space", "collapse / expand group"},
+		{"F", "show only the status under the cursor — F or esc for all"},
+		{"O", "reorder Herdr's own Spaces sidebar to match this board"},
 		{"a", "show or hide archived spaces"},
 		{"/", "filter by name, path or note"},
 		{"S", "manage statuses (add, rename, reorder, delete)"},

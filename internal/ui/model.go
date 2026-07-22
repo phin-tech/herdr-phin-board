@@ -159,8 +159,12 @@ type Model struct {
 	prevMode    mode
 	showArchive bool
 	filter      string
-	input       textinput.Model
-	manageIdx   int
+	// statusFilter narrows the board to one status. Herdr can filter its Agent
+	// sidebar by a metadata token, but not its Spaces panel -- and plenty of
+	// spaces have no agent -- so this lives here rather than being pushed out.
+	statusFilter string
+	input        textinput.Model
+	manageIdx    int
 
 	// chord holds a pending multi-key prefix, vim style: g then g or p.
 	chord string
@@ -390,6 +394,9 @@ func (m *Model) rebuild() {
 
 	m.rows = m.rows[:0]
 	for _, st := range m.board.Statuses {
+		if m.statusFilter != "" && st.ID != m.statusFilter {
+			continue
+		}
 		group := byStatus[st.ID]
 		// While filtering, empty groups are noise; otherwise they are useful
 		// drop targets and show the shape of the board.

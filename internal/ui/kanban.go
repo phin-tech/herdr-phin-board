@@ -31,6 +31,9 @@ func (m *Model) viewKanbanBoard() string {
 
 	rendered := make([][]string, 0, visible)
 	for col := m.colOffset; col < end; col++ {
+		if m.statusFilter != "" && m.board.Statuses[col].ID != m.statusFilter {
+			continue
+		}
 		rendered = append(rendered, m.renderColumn(col, width, height))
 	}
 

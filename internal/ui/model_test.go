@@ -2328,3 +2328,119 @@ func TestLinkRegionsResetEachFrame(t *testing.T) {
 		t.Fatalf("regions accumulated across frames: %d then %d", first, len(m.links))
 	}
 }
+
+func TestStatusFilterNarrowsEveryView(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3")) // Waiting; web stays in Todo
+
+	// Stand on the Waiting group and focus it.
+	selectSpace(t, m, "/tmp/api")
+	m.cursor-- // the group header above the row
+	send(t, m, key("F"))
+
+	if m.statusFilter != "waiting" {
+		t.Fatalf("statusFilter = %q, want waiting", m.statusFilter)
+	}
+	rows := spaceRows(m)
+	if len(rows) != 1 || rows[0].Key != "/tmp/api" {
+		t.Fatalf("list shows %+v, want only the Waiting space", rows)
+	}
+
+	// The table reads the same filter.
+	send(t, m, key("K"))
+	if len(m.flat) != 1 || m.flat[0].Key != "/tmp/api" {
+		t.Fatalf("table shows %+v", m.flat)
+	}
+
+	// And the header says the board is narrowed, so an empty one is explicable.
+	if out := m.View(); !strings.Contains(out, "Waiting only") {
+		t.Fatalf("the header does not say it is filtered:\n%s", out)
+	}
+}
+
+func TestStatusFilterTogglesOff(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.cursor = 0 // the Todo header
+	send(t, m, key("F"))
+	if m.statusFilter == "" {
+		t.Fatal("F did not filter")
+	}
+
+	send(t, m, key("F"))
+	if m.statusFilter != "" {
+		t.Fatal("F did not release the filter")
+	}
+	if len(spaceRows(m)) != 2 {
+		t.Fatalf("releasing the filter did not restore the board: %d rows", len(spaceRows(m)))
+	}
+}
+
+// Esc unwinds narrowing before it closes the board: a filtered board that quits
+// on esc would feel like losing your place.
+func TestEscReleasesTheStatusFilterBeforeQuitting(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.cursor = 0
+	send(t, m, key("F"))
+
+	send(t, m, key("esc"))
+	if m.quitting {
+		t.Fatal("esc quit instead of releasing the filter")
+	}
+	if m.statusFilter != "" {
+		t.Fatal("esc did not release the filter")
+	}
+}
+
+// Filtering to a status the cursor was not in must leave the cursor somewhere
+// real, or the next key looks broken.
+func TestStatusFilterLandsTheCursor(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("3")) // Waiting
+
+	// Stand on Todo's header and filter to it.
+	m.cursor = 0
+	send(t, m, key("F"))
+
+	if sp := m.selected(); sp == nil {
+		t.Fatal("the cursor is not on a space after filtering")
+	}
+}
+
+func TestReorderFollowsBoardOrder(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, workspacesMsg{
+		{ID: "w1", Label: "api", Cwd: "/tmp/api"},
+		{ID: "w2", Label: "web", Cwd: "/tmp/web"},
+	})
+	// web to Waiting, api left in Todo: the board shows api above web.
+	selectSpace(t, m, "/tmp/web")
+	send(t, m, key("3"))
+
+	var order []string
+	for _, st := range m.board.Statuses {
+		for _, sp := range m.groups[st.ID] {
+			order = append(order, sp.WorkspaceIDs...)
+		}
+	}
+	if len(order) != 2 || order[0] != "w1" || order[1] != "w2" {
+		t.Fatalf("board order is %v, want api then web", order)
+	}
+}
+
+func TestReorderWithNoLiveSpacesSaysSo(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, workspacesMsg{})
+
+	if cmd := m.reorderWorkspaces(); cmd != nil {
+		t.Fatal("a reorder was queued with nothing to reorder")
+	}
+	if m.status == "" {
+		t.Fatal("no explanation given")
+	}
+}

@@ -29,6 +29,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prLoadedMsg:
 		return m, m.applyPRs(msg)
 
+	case reorderedMsg:
+		m.status = fmt.Sprintf("Herdr's spaces now follow the board (%d moved)", msg.moved)
+		return m, nil
+
 	case agentSentMsg:
 		m.status = "sent to " + msg.label
 		return m, m.focusAgentAndQuit(msg.pane)
@@ -183,9 +187,15 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.status = ""
 			return m, nil
 		}
+		// Esc unwinds narrowing before it closes the board, so a filtered view
+		// is never mistaken for an empty one.
 		if m.filter != "" {
 			m.filter = ""
 			m.rebuild()
+			return m, nil
+		}
+		if m.statusFilter != "" {
+			m.toggleStatusFilter()
 			return m, nil
 		}
 		return m.quit()
@@ -318,6 +328,13 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input.SetValue(m.filter)
 		m.input.CursorEnd()
 		m.input.Focus()
+
+	case "F":
+		m.toggleStatusFilter()
+
+	case "O":
+		m.status = "reordering Herdr's spaces to match the board…"
+		return m, m.reorderWorkspaces()
 
 	case "a":
 		m.showArchive = !m.showArchive
@@ -751,6 +768,40 @@ func (m *Model) cycleSort() {
 	m.restoreCursor(selected)
 	m.clampCursor()
 	m.status = "sorted by " + m.sort.String()
+}
+
+// toggleStatusFilter narrows the board to the status under the cursor, or
+// releases it. Taking the status from the cursor means no picker: you are
+// already standing on the group you want to see alone.
+func (m *Model) toggleStatusFilter() {
+	if m.statusFilter != "" {
+		was, _ := m.board.StatusByID(m.statusFilter)
+		m.statusFilter = ""
+		m.rebuild()
+		m.status = "showing every status again" + labelSuffix(was.Label)
+		return
+	}
+
+	st, ok := m.currentStatus()
+	if !ok {
+		m.status = "move to a status first"
+		return
+	}
+	m.statusFilter = st.ID
+	m.rebuild()
+
+	// Landing again matters: the row the cursor was on may not be in this
+	// status, and a cursor pointing at nothing makes the next key look broken.
+	m.landed = false
+	m.rebuild()
+	m.status = "showing only " + st.Label + " — F or esc for all"
+}
+
+func labelSuffix(label string) string {
+	if label == "" {
+		return ""
+	}
+	return " (was " + label + ")"
 }
 
 // requireSpace guards the actions that only make sense on a space row. Landing

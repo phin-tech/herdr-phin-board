@@ -213,3 +213,12 @@ func (c *Client) Notify(title, body, sound string) error {
 	}
 	return c.Request("notification.show", params, nil)
 }
+
+// MoveWorkspace places a workspace at a position in Herdr's own ordering,
+// which is what the Spaces sidebar shows.
+func (c *Client) MoveWorkspace(id string, index int) error {
+	return c.Request("workspace.move", map[string]any{
+		"workspace_id": id,
+		"insert_index": index,
+	}, nil)
+}

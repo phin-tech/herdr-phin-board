@@ -52,6 +52,9 @@ var tableHeadStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(
 func (m *Model) buildFlat() {
 	m.flat = m.flat[:0]
 	for _, st := range m.board.Statuses {
+		if m.statusFilter != "" && st.ID != m.statusFilter {
+			continue
+		}
 		m.flat = append(m.flat, m.groups[st.ID]...)
 	}
 	if m.sort == sortStatus {

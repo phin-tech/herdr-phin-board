@@ -300,12 +300,31 @@ for itself, this is what you tell the board, and it is never overwritten.
 | `R` | rename the space — renames the Herdr workspace too |
 | `m` | type a message into that space's agent, then go there to send it |
 | `space` | collapse / expand a group |
+| `F` | show only the status under the cursor — `F` or `esc` for all |
+| `O` | reorder Herdr's own Spaces sidebar to match this board |
 | `a` | show or hide archived spaces |
 | `/` | filter by name, path, or note |
 | `S` | manage statuses: add, rename, reorder, delete, set the default |
 | `x` | forget the selected space |
 | `r` | refresh |
 | `q` | quit |
+
+## Filtering and ordering
+
+`F` narrows the board to whichever status the cursor is on — no picker, since
+you are already standing on the group you want. `F` again, or `esc`, restores
+everything. It applies to all three views, and the header says so, because an
+empty board that does not explain itself just looks broken.
+
+`O` pushes the board's order onto Herdr: the Spaces sidebar is reordered to
+match, statuses first and then however you arranged them by hand.
+
+That is a deliberate keypress rather than something the board does
+continuously, because reordering somebody's sidebar every time a status changed
+would fight anyone who arranges their spaces themselves. Herdr can filter its
+*Agent* panel by a metadata token — the board's `$status` works there — but not
+its Spaces panel, and plenty of spaces have no agent at all. Moving workspaces
+is the only mechanism that reaches Spaces.
 
 ## How state works
 
