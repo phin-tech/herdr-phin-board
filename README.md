@@ -154,10 +154,18 @@ collapsed group or an off-screen column is still visible. The detail view spells
 out what happened, and names the checks that are failing rather than just saying
 some are.
 
-The watcher starts itself when you open the board, keeps running after you close
-it, and exits when Herdr does. A lockfile means there is only ever one, however
-many times you open the board. Run it by hand with `herdr-phin-board watch` if
-you would rather.
+The watcher starts itself when you open the board and keeps running after you
+close it. It holds an event subscription, which does double duty: Herdr closing
+drops the connection so the watcher exits at once rather than discovering the
+loss on its next tick, and a workspace appearing or closing nudges it to poll
+then instead of waiting out the timer. A burst of events still costs one poll.
+
+A lockfile means there is only ever one watcher, however many times you open the
+board, and it covers every space across every repo. Run it by hand with
+`herdr-phin-board watch` if you would rather.
+
+It follows the Herdr session that started it. If you run named sessions
+side by side, spaces in the other one are outside its view.
 
 ## Install
 

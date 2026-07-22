@@ -84,6 +84,17 @@ func Run(ctx context.Context, stateDir string, interval time.Duration) error {
 	}
 	defer lock.Release()
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// An event subscription doubles as a liveness signal. Herdr closing drops
+	// the connection, which ends the watcher at once rather than leaving it to
+	// discover the loss on its next tick -- up to a whole interval later.
+	//
+	// It is also a nudge: a workspace appearing or closing changes what there
+	// is to watch, so the poll happens then instead of waiting out the timer.
+	nudge := subscribe(ctx, cancel)
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -97,6 +108,57 @@ func Run(ctx context.Context, stateDir string, interval time.Duration) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+		case <-nudge:
+			// Coalesce a burst of events into one poll: Herdr emits freely,
+			// and gh calls are the expensive part.
+			drain(nudge, settle)
+		}
+	}
+}
+
+// settle is how long to wait for an event burst to finish before polling.
+const settle = 2 * time.Second
+
+// subscribe streams Herdr events, cancelling ctx when the stream ends. The
+// returned channel carries a nudge per event.
+func subscribe(ctx context.Context, cancel context.CancelFunc) <-chan struct{} {
+	out := make(chan struct{}, 1)
+
+	client, err := herdr.New()
+	if err != nil {
+		cancel()
+		return out
+	}
+
+	events := make(chan herdr.Event, 32)
+	go func() {
+		// Returns when Herdr goes away, which is exactly the signal wanted.
+		_ = client.Subscribe(ctx, herdr.WorkspaceSubscriptions, events)
+		cancel()
+		close(events)
+	}()
+
+	go func() {
+		for range events {
+			select {
+			case out <- struct{}{}:
+			default: // a nudge is already pending
+			}
+		}
+	}()
+	return out
+}
+
+// drain swallows further nudges for a moment, so a burst of events costs one
+// poll rather than one per event.
+func drain(ch <-chan struct{}, window time.Duration) {
+	timer := time.NewTimer(window)
+	defer timer.Stop()
+	for {
+		select {
+		case <-ch:
+		case <-timer.C:
+			return
 		}
 	}
 }
