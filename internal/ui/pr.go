@@ -3,12 +3,14 @@ package ui
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/phin-tech/herdr-phin-board/internal/gh"
+	"github.com/phin-tech/herdr-phin-board/internal/herdr"
 	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
 
@@ -44,6 +46,14 @@ func (m *Model) loadPRs() tea.Cmd {
 		return nil
 	}
 
+	// Each stale space is looked up by directory, and the panes open on it are
+	// carried along so an agent's own output can be searched for a PR URL.
+	panes := map[string][]string{}
+	for _, ws := range m.live {
+		key := store.Key(ws.Cwd)
+		panes[key] = append(panes[key], ws.PaneIDs...)
+	}
+
 	var dirs []string
 	for _, group := range m.groups {
 		for _, sp := range group {
@@ -57,9 +67,17 @@ func (m *Model) loadPRs() tea.Cmd {
 	}
 
 	m.prLoading = true
-	client := m.gh
+	ghClient, herdrClient := m.gh, m.client
 	return func() tea.Msg {
-		found, problem := client.FetchAll(context.Background(), dirs)
+		targets := make([]gh.Target, 0, len(dirs))
+		for _, dir := range dirs {
+			targets = append(targets, gh.Target{
+				Dir: dir,
+				URL: scrapePRURL(herdrClient, panes[dir]),
+			})
+		}
+
+		found, problem := ghClient.FetchAll(context.Background(), targets)
 
 		var missing []string
 		for _, dir := range dirs {
@@ -70,6 +88,37 @@ func (m *Model) loadPRs() tea.Cmd {
 		return prLoadedMsg{found: found, missing: missing, problem: problem}
 	}
 }
+
+// prURLPattern matches a pull request URL an agent printed, on any GitHub host.
+var prURLPattern = regexp.MustCompile(`https://[^\s"'<>]+/pull/\d+`)
+
+// scrapePRURL looks through a space's panes for the most recent pull request
+// URL. Borrowed from Matovidlo/herdr-pr-tracker: an agent announces the PR it
+// just opened, which finds it before any branch lookup could.
+//
+// It is a hint, not an answer -- gh still resolves the URL, so a stale or
+// mistyped one simply falls back to nothing.
+func scrapePRURL(client *herdr.Client, paneIDs []string) string {
+	if client == nil {
+		return ""
+	}
+	for _, id := range paneIDs {
+		text, err := client.ReadPane(id, prScrapeLines)
+		if err != nil {
+			continue
+		}
+		if matches := prURLPattern.FindAllString(text, -1); len(matches) > 0 {
+			// The last one wins: an agent that opened two PRs in a session
+			// most recently announced the one you care about.
+			return matches[len(matches)-1]
+		}
+	}
+	return ""
+}
+
+// prScrapeLines bounds how far back to look. Deep enough to survive a chatty
+// agent, shallow enough that reading several panes stays cheap.
+const prScrapeLines = 2000
 
 // applyPRs folds a fetch result into the cache and pushes the sidebar token.
 func (m *Model) applyPRs(msg prLoadedMsg) tea.Cmd {
@@ -221,6 +270,19 @@ func prShort(pr gh.PR) string {
 	return out
 }
 
+// prMerge names a branch that cannot land as it stands. A mergeable branch
+// says nothing: it is the normal case, and the column is for what needs doing.
+func prMerge(pr gh.PR) string {
+	switch pr.Merge {
+	case gh.MergeConflict:
+		return "conflict"
+	case gh.MergeBehind:
+		return "behind"
+	default:
+		return ""
+	}
+}
+
 // prCell is the table form: #123 ● approved ✓
 func prCell(pr gh.PR) string {
 	parts := []string{fmt.Sprintf("#%d", pr.Number), prStateSymbol(pr)}
@@ -229,6 +291,9 @@ func prCell(pr gh.PR) string {
 	}
 	if s := prChecksSymbol(pr); s != "" {
 		parts = append(parts, s)
+	}
+	if mg := prMerge(pr); mg != "" {
+		parts = append(parts, mg)
 	}
 	return strings.Join(parts, " ")
 }
@@ -239,6 +304,8 @@ func prStyled(pr gh.PR, width int) string {
 	text := truncate(prCell(pr), width)
 	switch {
 	case pr.Checks == gh.ChecksFail:
+		return prFailStyle.Render(text)
+	case pr.Merge == gh.MergeConflict:
 		return prFailStyle.Render(text)
 	case pr.Review == "CHANGES_REQUESTED":
 		return prFailStyle.Render(text)
@@ -267,12 +334,14 @@ func prDetailLines(pr gh.PR, width int) []string {
 	if s := prChecksSymbol(pr); s != "" {
 		lines = append(lines, prChecksStyle(pr).Render(truncate("checks "+string(pr.Checks)+" "+s, width)))
 	}
+	switch pr.Merge {
+	case gh.MergeConflict:
+		lines = append(lines, prFailStyle.Render(truncate("conflicts with base — needs a rebase", width)))
+	case gh.MergeBehind:
+		lines = append(lines, prPendingStyle.Render(truncate("behind base", width)))
+	}
 	for _, line := range wrap(pr.Title, width) {
 		lines = append(lines, prDimStyle.Render(line))
 	}
 	return lines
 }
-
-// prKeys is used by tests and the store to keep the two packages honest about
-// what a space key is.
-var _ = store.Key

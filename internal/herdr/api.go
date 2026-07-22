@@ -18,7 +18,8 @@ type Workspace struct {
 	PaneCount   int    `json:"pane_count"`
 	TabCount    int    `json:"tab_count"`
 
-	Cwd string `json:"-"`
+	Cwd     string   `json:"-"`
+	PaneIDs []string `json:"-"`
 }
 
 type pane struct {
@@ -56,6 +57,10 @@ func (c *Client) Workspaces() ([]Workspace, error) {
 
 	out := make([]Workspace, 0, len(snap.Workspaces))
 	for _, ws := range snap.Workspaces {
+		ws.PaneIDs = nil
+		for _, p := range byWorkspace[ws.ID] {
+			ws.PaneIDs = append(ws.PaneIDs, p.PaneID)
+		}
 		for _, p := range byWorkspace[ws.ID] {
 			if p.Cwd == "" {
 				continue
@@ -160,4 +165,29 @@ func (c *Client) SendToAgent(paneID, text string) error {
 // FocusAgent brings an agent's pane to the foreground.
 func (c *Client) FocusAgent(paneID string) error {
 	return c.Request("agent.focus", map[string]any{"target": paneID}, nil)
+}
+
+// ReadPane returns recent output from a pane. Used to find a pull request URL
+// an agent printed, which reaches PRs a branch lookup cannot: a PR opened from
+// a branch that has since moved on, or one raised in a directory the board
+// resolves differently.
+func (c *Client) ReadPane(paneID string, lines int) (string, error) {
+	var res struct {
+		Content string `json:"content"`
+		Text    string `json:"text"`
+	}
+	err := c.Request("pane.read", map[string]any{
+		"pane_id":    paneID,
+		"source":     "recent",
+		"lines":      lines,
+		"format":     "text",
+		"strip_ansi": true,
+	}, &res)
+	if err != nil {
+		return "", err
+	}
+	if res.Content != "" {
+		return res.Content, nil
+	}
+	return res.Text, nil
 }

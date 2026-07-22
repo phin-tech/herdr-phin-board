@@ -30,15 +30,28 @@ const (
 
 // PR is the slice of pull request state the board displays.
 type PR struct {
-	Number  int       `json:"number"`
-	State   string    `json:"state"` // OPEN, MERGED, CLOSED
-	IsDraft bool      `json:"is_draft"`
-	Review  string    `json:"review"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
-	Checks  Checks    `json:"checks"`
+	Number  int    `json:"number"`
+	State   string `json:"state"` // OPEN, MERGED, CLOSED
+	IsDraft bool   `json:"is_draft"`
+	Review  string `json:"review"` // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED
+	Checks  Checks `json:"checks"`
+	// Merge is the branch's standing against its base, which is actionable in
+	// a way passing checks is not: conflicts and being behind need a rebase.
+	Merge   Merge     `json:"merge,omitempty"`
 	Title   string    `json:"title"`
 	URL     string    `json:"url"`
 	Fetched time.Time `json:"fetched"`
 }
+
+// Merge summarises whether the PR can actually land.
+type Merge string
+
+const (
+	MergeUnknown  Merge = ""
+	MergeOK       Merge = "ok"
+	MergeConflict Merge = "conflict"
+	MergeBehind   Merge = "behind"
+)
 
 // Found reports whether this record is an actual PR rather than a cached
 // "checked, nothing here".
@@ -120,6 +133,8 @@ type rawPR struct {
 	ReviewDecision    string `json:"reviewDecision"`
 	Title             string `json:"title"`
 	URL               string `json:"url"`
+	Mergeable         string `json:"mergeable"`
+	MergeStateStatus  string `json:"mergeStateStatus"`
 	StatusCheckRollup []struct {
 		Typename   string `json:"__typename"`
 		Status     string `json:"status"`     // check runs
@@ -128,14 +143,34 @@ type rawPR struct {
 	} `json:"statusCheckRollup"`
 }
 
-const prFields = "number,state,isDraft,reviewDecision,statusCheckRollup,title,url"
+const prFields = "number,state,isDraft,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup,title,url"
 
-// Fetch reads the PR for one directory.
+// Target is a directory to look up, optionally with a PR URL already known --
+// scraped from an agent's output, say, which finds a PR the branch lookup
+// cannot see.
+type Target struct {
+	Dir string
+	URL string
+}
+
+// Fetch reads the PR for one directory, by its current branch.
 func (c *Client) Fetch(ctx context.Context, dir string) (PR, error) {
+	return c.fetchTarget(ctx, Target{Dir: dir})
+}
+
+func (c *Client) fetchTarget(ctx context.Context, target Target) (PR, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
-	out, err := c.Run(ctx, dir, "pr", "view", "--json", prFields)
+	args := []string{"pr", "view", "--json", prFields}
+	if target.URL != "" {
+		// gh accepts a URL in place of the branch lookup, which is how a
+		// scraped URL reaches a PR the current branch would not resolve.
+		args = []string{"pr", "view", target.URL, "--json", prFields}
+	}
+	dir := target.Dir
+
+	out, err := c.Run(ctx, dir, args...)
 	if err != nil {
 		// gh exits non-zero for "no PR", "not a repo" and "no remote" alike;
 		// those are ordinary absences. A missing or unauthenticated gh is not,
@@ -157,10 +192,28 @@ func (c *Client) Fetch(ctx context.Context, dir string) (PR, error) {
 		IsDraft: raw.IsDraft,
 		Review:  raw.ReviewDecision,
 		Checks:  rollup(raw),
+		Merge:   mergeState(raw),
 		Title:   raw.Title,
 		URL:     raw.URL,
 		Fetched: time.Now().UTC(),
 	}, nil
+}
+
+// mergeState reads whether the branch can land, independently of whether it is
+// a draft -- a draft with conflicts still needs rebasing.
+func mergeState(raw rawPR) Merge {
+	switch {
+	case raw.Mergeable == "CONFLICTING", raw.MergeStateStatus == "DIRTY":
+		return MergeConflict
+	case raw.MergeStateStatus == "BEHIND":
+		return MergeBehind
+	case raw.Mergeable == "MERGEABLE":
+		return MergeOK
+	default:
+		// UNKNOWN means GitHub is still computing it; saying nothing beats
+		// claiming a state that is about to change.
+		return MergeUnknown
+	}
 }
 
 // rollup reduces the check runs to one verdict. A single failure outranks
@@ -190,11 +243,11 @@ func rollup(raw rawPR) Checks {
 	return ChecksPass
 }
 
-// FetchAll reads PRs for many directories concurrently, returning only those
-// that have one, plus any problem that applies to every directory rather than
-// to one -- gh missing or logged out.
-func (c *Client) FetchAll(ctx context.Context, dirs []string) (map[string]PR, error) {
-	sort.Strings(dirs)
+// FetchAll reads PRs for many targets concurrently, returning only those that
+// have one, plus any problem that applies to every target rather than to one --
+// gh missing or logged out.
+func (c *Client) FetchAll(ctx context.Context, targets []Target) (map[string]PR, error) {
+	sort.Slice(targets, func(i, j int) bool { return targets[i].Dir < targets[j].Dir })
 
 	workers := c.Workers
 	if workers < 1 {
@@ -209,9 +262,9 @@ func (c *Client) FetchAll(ctx context.Context, dirs []string) (map[string]PR, er
 	)
 	sem := make(chan struct{}, workers)
 
-	for _, dir := range dirs {
+	for _, target := range targets {
 		wg.Add(1)
-		go func(dir string) {
+		go func(target Target) {
 			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
@@ -220,7 +273,7 @@ func (c *Client) FetchAll(ctx context.Context, dirs []string) (map[string]PR, er
 				return
 			}
 
-			pr, err := c.Fetch(ctx, dir)
+			pr, err := c.fetchTarget(ctx, target)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -229,8 +282,8 @@ func (c *Client) FetchAll(ctx context.Context, dirs []string) (map[string]PR, er
 				}
 				return
 			}
-			out[dir] = pr
-		}(dir)
+			out[target.Dir] = pr
+		}(target)
 	}
 	wg.Wait()
 	return out, problem

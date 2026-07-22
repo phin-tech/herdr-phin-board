@@ -2111,3 +2111,61 @@ func TestEmptyMessageSendsNothing(t *testing.T) {
 		t.Fatal("an empty message queued a send")
 	}
 }
+
+func TestScrapePRURLPatterns(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"plain", "opened https://github.com/o/r/pull/12 for review", "https://github.com/o/r/pull/12"},
+		{"enterprise host", "see https://git.corp.example/o/r/pull/7 now", "https://git.corp.example/o/r/pull/7"},
+		// An agent that opened two takes the most recent one.
+		{"last wins", "https://github.com/o/r/pull/1 then https://github.com/o/r/pull/2", "https://github.com/o/r/pull/2"},
+		{"none", "nothing to see", ""},
+		{"issue is not a pr", "https://github.com/o/r/issues/4", ""},
+		{"quoted", `"https://github.com/o/r/pull/33"`, "https://github.com/o/r/pull/33"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ""
+			if ms := prURLPattern.FindAllString(tc.text, -1); len(ms) > 0 {
+				got = ms[len(ms)-1]
+			}
+			if got != tc.want {
+				t.Fatalf("matched %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Scraping is a hint. With no Herdr client there is simply no hint, and the
+// branch lookup carries on.
+func TestScrapeWithoutAClientIsHarmless(t *testing.T) {
+	if got := scrapePRURL(nil, []string{"w1:p1"}); got != "" {
+		t.Fatalf("got %q from a nil client", got)
+	}
+}
+
+func TestMergeConflictRendersAndColours(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 132, 20
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{
+		Number: 5, State: "OPEN", Checks: gh.ChecksPass,
+		Merge: gh.MergeConflict, URL: "https://example.test/5",
+	})
+	send(t, m, key("K")) // table
+
+	out := m.View()
+	if !strings.Contains(out, "conflict") {
+		t.Fatalf("a conflicting PR does not say so:\n%s", out)
+	}
+
+	// A mergeable PR says nothing: the column is for what needs doing.
+	withPR(m, "/tmp/api", gh.PR{Number: 5, State: "OPEN", Merge: gh.MergeOK})
+	if strings.Contains(m.View(), "conflict") {
+		t.Fatal("a mergeable PR reported a conflict")
+	}
+}

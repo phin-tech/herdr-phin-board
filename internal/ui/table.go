@@ -89,7 +89,7 @@ func (m *Model) tableWidths() tableWidths {
 
 	// The PR column only earns its space when something on the board has one.
 	if m.anyPR() {
-		w.pr = 20
+		w.pr = 24
 	}
 
 	gaps := 4

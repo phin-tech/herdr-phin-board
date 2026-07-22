@@ -89,7 +89,10 @@ this suits best — one branch per space, so one PR per row.
 ```
 
 `●` open · `○` draft · `◆` merged · `✕` closed, then the review decision, then
-checks `✓` pass `✗` fail `·` running. A row is coloured by whatever most needs
+checks `✓` pass `✗` fail `·` running, then `conflict` or `behind` when the
+branch cannot land as it stands. A mergeable branch says nothing — the column
+is for what needs doing, and GitHub computes mergeability lazily, so an
+un-computed state is left blank rather than guessed. A row is coloured by whatever most needs
 attention: failing checks first, then changes-requested. `gp` opens the
 selected space's PR in a browser.
 
@@ -108,8 +111,10 @@ It refuses rather than guesses. Panes with no agent are skipped (shells, plugin
 sidebars, this board), and a space running two agents is a refusal, not a coin
 flip: typing a review comment into the wrong agent is worse than not sending it.
 
-It reads through the `gh` CLI, so it uses your existing login and needs no
-token. Results are cached beside the board and refreshed when you open it, so
+The PR is found by the space's branch, or by a URL an agent printed: the board
+reads recent pane output for a `…/pull/N` link, which catches a pull request the
+moment it is announced and reaches ones a branch lookup cannot. It reads through
+the `gh` CLI, so it uses your existing login and needs no token. Results are cached beside the board and refreshed when you open it, so
 the board paints instantly and fills in as answers arrive. No `gh`, no repo, no
 No repo and no PR both look the same — an empty column. A **missing or
 logged-out `gh` says so once**, because Herdr launches plugins with a minimal

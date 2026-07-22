@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -134,7 +135,7 @@ func TestRollupPrefersFailureOverPending(t *testing.T) {
 func TestFetchAllSkipsDirsWithoutPRs(t *testing.T) {
 	c := fakeClient(map[string]string{"/tmp/withpr": openPR})
 
-	got, problem := c.FetchAll(context.Background(), []string{"/tmp/withpr", "/tmp/nopr", "/tmp/other"})
+	got, problem := c.FetchAll(context.Background(), []Target{{Dir: "/tmp/withpr"}, {Dir: "/tmp/nopr"}, {Dir: "/tmp/other"}})
 	if problem != nil {
 		t.Fatalf("ordinary absences were reported as a problem: %v", problem)
 	}
@@ -156,7 +157,11 @@ func TestFetchAllIsConcurrencySafe(t *testing.T) {
 	c := fakeClient(responses)
 	c.Workers = 3
 
-	got, _ := c.FetchAll(context.Background(), dirs)
+	var targets []Target
+	for _, d := range dirs {
+		targets = append(targets, Target{Dir: d})
+	}
+	got, _ := c.FetchAll(context.Background(), targets)
 	if len(got) != len(dirs) {
 		t.Fatalf("got %d results, want %d", len(got), len(dirs))
 	}
@@ -263,11 +268,100 @@ func TestFetchAllReportsAGlobalFault(t *testing.T) {
 		},
 	}
 
-	got, problem := c.FetchAll(context.Background(), []string{"/a", "/b"})
+	got, problem := c.FetchAll(context.Background(), []Target{{Dir: "/a"}, {Dir: "/b"}})
 	if len(got) != 0 {
 		t.Fatalf("got results from a broken gh: %+v", got)
 	}
 	if !errors.Is(problem, ErrUnavailable) {
 		t.Fatalf("problem = %v, want ErrUnavailable", problem)
+	}
+}
+
+// Merge state is about whether the branch can land, which is separate from
+// whether it is a draft or whether checks pass.
+func TestMergeState(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want Merge
+	}{
+		{"clean", `{"number":1,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}`, MergeOK},
+		{"conflicting", `{"number":1,"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}`, MergeConflict},
+		{"dirty alone", `{"number":1,"mergeStateStatus":"DIRTY"}`, MergeConflict},
+		{"behind", `{"number":1,"mergeable":"MERGEABLE","mergeStateStatus":"BEHIND"}`, MergeBehind},
+		// UNKNOWN means GitHub is still computing it; claiming a state that is
+		// about to change is worse than saying nothing.
+		{"still computing", `{"number":1,"mergeable":"UNKNOWN"}`, MergeUnknown},
+		{"absent", `{"number":1}`, MergeUnknown},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fakeClient(map[string]string{"/tmp/repo": tc.body})
+			pr, err := c.Fetch(context.Background(), "/tmp/repo")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pr.Merge != tc.want {
+				t.Fatalf("merge = %q, want %q", pr.Merge, tc.want)
+			}
+		})
+	}
+}
+
+// A conflicting draft still needs rebasing, so draft-ness must not mask it.
+func TestConflictReportedOnADraft(t *testing.T) {
+	c := fakeClient(map[string]string{"/tmp/repo": `{"number":1,"isDraft":true,"mergeable":"CONFLICTING"}`})
+	pr, err := c.Fetch(context.Background(), "/tmp/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pr.IsDraft || pr.Merge != MergeConflict {
+		t.Fatalf("draft=%v merge=%q, want both", pr.IsDraft, pr.Merge)
+	}
+}
+
+// A known URL is looked up directly rather than through the branch, which is
+// how a scraped URL reaches a PR the current branch cannot resolve.
+func TestTargetURLIsPassedToGh(t *testing.T) {
+	var got []string
+	c := &Client{
+		Workers: 1,
+		Timeout: time.Second,
+		Run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			got = args
+			return []byte(openPR), nil
+		},
+	}
+
+	if _, err := c.FetchAll(context.Background(), []Target{
+		{Dir: "/tmp/repo", URL: "https://github.com/o/r/pull/9"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got) < 3 || got[2] != "https://github.com/o/r/pull/9" {
+		t.Fatalf("gh called with %v, want the URL as the argument", got)
+	}
+}
+
+func TestTargetWithoutURLUsesTheBranch(t *testing.T) {
+	var got []string
+	c := &Client{
+		Workers: 1,
+		Timeout: time.Second,
+		Run: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+			got = args
+			return []byte(openPR), nil
+		},
+	}
+
+	if _, err := c.FetchAll(context.Background(), []Target{{Dir: "/tmp/repo"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range got {
+		if strings.HasPrefix(a, "https://") {
+			t.Fatalf("a URL was passed with no target URL set: %v", got)
+		}
 	}
 }
