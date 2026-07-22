@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"github.com/phin-tech/herdr-phin-board/internal/alert"
 	"time"
 
 	"fmt"
@@ -2167,5 +2168,80 @@ func TestMergeConflictRendersAndColours(t *testing.T) {
 	withPR(m, "/tmp/api", gh.PR{Number: 5, State: "OPEN", Merge: gh.MergeOK})
 	if strings.Contains(m.View(), "conflict") {
 		t.Fatal("a mergeable PR reported a conflict")
+	}
+}
+
+func TestBellShowsAndClearsOnSelection(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	m.alerts.Add("/tmp/web", alert.Alert{Kind: alert.ChecksFailed, Text: "#1 checks failed"})
+	m.rebuild()
+
+	if !m.hasBell("/tmp/web") {
+		t.Fatal("no bell on a space with an unread alert")
+	}
+	if !strings.Contains(m.View(), bellGlyph) {
+		t.Fatal("the bell does not render")
+	}
+
+	// Landing on the row is what marks it seen.
+	selectSpace(t, m, "/tmp/web")
+	m.selectedBellCleared()
+
+	if m.hasBell("/tmp/web") {
+		t.Fatal("selecting the row did not clear the bell")
+	}
+}
+
+// A bell inside a collapsed group or an off-screen column would otherwise be
+// invisible, so the header carries a count.
+func TestHeaderCountsBells(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+	send(t, m, key("4")) // Done, which starts collapsed
+	m.alerts.Add("/tmp/api", alert.Alert{Kind: alert.Merged, Text: "#2 merged"})
+	m.rebuild()
+
+	if !strings.Contains(m.View(), bellGlyph) {
+		t.Fatalf("a bell in a collapsed group is invisible:\n%s", m.View())
+	}
+	if !strings.Contains(m.View(), "1 space") {
+		t.Fatal("the header does not count the bell")
+	}
+}
+
+func TestAlertTextAppearsInDetail(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 120, 24
+	send(t, m, liveWorkspaces())
+	m.alerts.Add("/tmp/api", alert.Alert{Kind: alert.Conflicted, Text: "#9 conflicts with base"})
+	m.rebuild()
+	selectSpace(t, m, "/tmp/api")
+
+	if out := m.View(); !strings.Contains(out, "#9 conflicts with base") {
+		t.Fatalf("the detail view does not say what happened:\n%s", out)
+	}
+}
+
+// The detail view names which checks are failing, not just that some are.
+func TestFailingCheckNamesInDetail(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 120, 24
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{
+		Number: 3, State: "OPEN", Checks: gh.ChecksFail,
+		Notable: []gh.Check{
+			{Name: "test (ubuntu-latest)", State: gh.ChecksFail},
+			{Name: "lint", State: gh.ChecksPending},
+		},
+	})
+	selectSpace(t, m, "/tmp/api")
+
+	out := m.View()
+	for _, want := range []string{"test (ubuntu-latest)", "lint"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("detail does not name %q:\n%s", want, out)
+		}
 	}
 }

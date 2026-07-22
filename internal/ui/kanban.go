@@ -143,7 +143,11 @@ func (m *Model) renderCard(sp *space, selected bool, width int) []string {
 		marker = cursorStyle.Render("❯ ")
 	}
 
-	name := truncate(sp.Label, width-2)
+	label := sp.Label
+	if m.hasBell(sp.Key) {
+		label = bellGlyph + " " + label
+	}
+	name := truncate(label, width-2)
 	switch {
 	case held:
 		name = grabStyle.Render(name)

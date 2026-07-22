@@ -181,7 +181,11 @@ func (m *Model) renderTableRow(i int, w tableWidths) string {
 		prefix = cursorStyle.Render(" ❯ ")
 	}
 
-	name := pad(sp.Label, w.name)
+	label := sp.Label
+	if m.hasBell(sp.Key) {
+		label = bellGlyph + " " + label
+	}
+	name := pad(label, w.name)
 	switch {
 	case held:
 		name = grabStyle.Render(name)

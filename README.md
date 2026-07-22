@@ -132,6 +132,33 @@ rows = [
 ]
 ```
 
+## Notifications and the bell
+
+A watcher polls your spaces' pull requests in the background, every two minutes,
+and raises a Herdr notification when something actually changes:
+
+| | |
+|---|---|
+| checks pass → fail | the thing you were waiting on just broke |
+| a review lands | approved, or changes requested |
+| clean → conflict | needs a rebase before it can land |
+| merged or closed | the work landed, or didn't |
+
+**Only changes, never states.** A failing check is announced once, not on every
+poll — notifying on state trains you to ignore the notifications.
+
+Herdr toasts are transient: fired while you are away, they are gone. So every
+notification is also recorded, and the space wears a 🔔 until you look at it.
+Selecting the row clears it; the count in the header means a bell inside a
+collapsed group or an off-screen column is still visible. The detail view spells
+out what happened, and names the checks that are failing rather than just saying
+some are.
+
+The watcher starts itself when you open the board, keeps running after you close
+it, and exits when Herdr does. A lockfile means there is only ever one, however
+many times you open the board. Run it by hand with `herdr-phin-board watch` if
+you would rather.
+
 ## Install
 
 ```sh
@@ -255,6 +282,7 @@ belongs to the project rather than the window.
 
 ```sh
 herdr-phin-board sync    # re-apply stored statuses to workspace tokens
+herdr-phin-board watch   # poll PRs and notify (started automatically by the board)
 herdr-phin-board prune   # forget entries whose directory no longer exists
 ```
 

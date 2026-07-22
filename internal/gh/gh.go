@@ -37,10 +37,20 @@ type PR struct {
 	Checks  Checks `json:"checks"`
 	// Merge is the branch's standing against its base, which is actionable in
 	// a way passing checks is not: conflicts and being behind need a rebase.
-	Merge   Merge     `json:"merge,omitempty"`
+	Merge Merge `json:"merge,omitempty"`
+	// Notable names the checks worth reading: the failing ones, then the ones
+	// still running. Passing checks are omitted -- a PR can have forty, and
+	// "which one broke" is the only question the detail view needs to answer.
+	Notable []Check   `json:"notable,omitempty"`
 	Title   string    `json:"title"`
 	URL     string    `json:"url"`
 	Fetched time.Time `json:"fetched"`
+}
+
+// Check is one named check run, kept only when it needs attention.
+type Check struct {
+	Name  string `json:"name"`
+	State Checks `json:"state"` // ChecksFail or ChecksPending
 }
 
 // Merge summarises whether the PR can actually land.
@@ -136,14 +146,21 @@ type rawPR struct {
 	Mergeable         string `json:"mergeable"`
 	MergeStateStatus  string `json:"mergeStateStatus"`
 	StatusCheckRollup []struct {
-		Typename   string `json:"__typename"`
-		Status     string `json:"status"`     // check runs
-		Conclusion string `json:"conclusion"` // check runs
-		State      string `json:"state"`      // status contexts
+		Typename     string `json:"__typename"`
+		Name         string `json:"name"`         // check runs
+		Context      string `json:"context"`      // status contexts
+		WorkflowName string `json:"workflowName"` // check runs
+		Status       string `json:"status"`       // check runs
+		Conclusion   string `json:"conclusion"`   // check runs
+		State        string `json:"state"`        // status contexts
 	} `json:"statusCheckRollup"`
 }
 
 const prFields = "number,state,isDraft,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup,title,url"
+
+// maxNotable caps how many check names are kept. A wall of red is no more
+// useful than a count, and the cache should stay small.
+const maxNotable = 6
 
 // Target is a directory to look up, optionally with a PR URL already known --
 // scraped from an agent's output, say, which finds a PR the branch lookup
@@ -192,11 +209,39 @@ func (c *Client) fetchTarget(ctx context.Context, target Target) (PR, error) {
 		IsDraft: raw.IsDraft,
 		Review:  raw.ReviewDecision,
 		Checks:  rollup(raw),
+		Notable: notable(raw),
 		Merge:   mergeState(raw),
 		Title:   raw.Title,
 		URL:     raw.URL,
 		Fetched: time.Now().UTC(),
 	}, nil
+}
+
+// notable lists the checks worth naming: failures first, since those are what
+// you act on, then whatever is still running.
+func notable(raw rawPR) []Check {
+	var failed, running []Check
+	for _, c := range raw.StatusCheckRollup {
+		name := c.Name
+		if name == "" {
+			name = c.Context
+		}
+		if name == "" {
+			continue
+		}
+		switch {
+		case checkFailed(c.Conclusion, c.State):
+			failed = append(failed, Check{Name: name, State: ChecksFail})
+		case checkRunning(c.Status, c.State):
+			running = append(running, Check{Name: name, State: ChecksPending})
+		}
+	}
+
+	out := append(failed, running...)
+	if len(out) > maxNotable {
+		out = out[:maxNotable]
+	}
+	return out
 }
 
 // mergeState reads whether the branch can land, independently of whether it is
@@ -228,12 +273,9 @@ func rollup(raw rawPR) Checks {
 	pending := false
 	for _, c := range raw.StatusCheckRollup {
 		switch {
-		case c.Conclusion == "FAILURE", c.Conclusion == "TIMED_OUT",
-			c.Conclusion == "CANCELLED", c.Conclusion == "STARTUP_FAILURE",
-			c.Conclusion == "ACTION_REQUIRED",
-			c.State == "FAILURE", c.State == "ERROR":
+		case checkFailed(c.Conclusion, c.State):
 			return ChecksFail
-		case c.Status != "" && c.Status != "COMPLETED", c.State == "PENDING":
+		case checkRunning(c.Status, c.State):
 			pending = true
 		}
 	}
@@ -241,6 +283,20 @@ func rollup(raw rawPR) Checks {
 		return ChecksPending
 	}
 	return ChecksPass
+}
+
+// checkFailed and checkRunning are shared by the rollup verdict and the named
+// list, so the summary and the detail can never disagree.
+func checkFailed(conclusion, state string) bool {
+	switch conclusion {
+	case "FAILURE", "TIMED_OUT", "CANCELLED", "STARTUP_FAILURE", "ACTION_REQUIRED":
+		return true
+	}
+	return state == "FAILURE" || state == "ERROR"
+}
+
+func checkRunning(status, state string) bool {
+	return (status != "" && status != "COMPLETED") || state == "PENDING"
 }
 
 // FetchAll reads PRs for many targets concurrently, returning only those that

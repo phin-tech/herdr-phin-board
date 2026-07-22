@@ -20,6 +20,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workspacesMsg:
 		m.live = msg
 		m.err = nil
+		m.reloadAlerts()
 		m.rebuild()
 		// The space list is what defines which directories to ask GitHub
 		// about, so PR loading is kicked off from here rather than Init.
@@ -211,12 +212,14 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.syncTokens()
 		}
 		m.moveCursor(1)
+		return m, m.selectedBellCleared()
 	case "k", "up":
 		if m.grabbed != "" {
 			m.moveGrabbed(-1)
 			return m, m.syncTokens()
 		}
 		m.moveCursor(-1)
+		return m, m.selectedBellCleared()
 	case "home":
 		m.cursor = 0
 		m.rowInCol = 0

@@ -86,6 +86,13 @@ func (m *Model) detailLines(sp *space, width int) []string {
 	}
 	lines = append(lines, "")
 
+	// What happened while you were away comes first: it is the reason the row
+	// was calling for attention.
+	if lines2 := m.alertLines(sp.Key, width); len(lines2) > 0 {
+		lines = append(lines, lines2...)
+		lines = append(lines, "")
+	}
+
 	// PR context sits between the note and the machine facts: it is about the
 	// work, but unlike the note it is not something you wrote.
 	if pr, ok := m.prFor(sp.Key); ok {

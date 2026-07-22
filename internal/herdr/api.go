@@ -191,3 +191,16 @@ func (c *Client) ReadPane(paneID string, lines int) (string, error) {
 	}
 	return res.Text, nil
 }
+
+// Notify raises a Herdr notification. Whether it lands as an in-app toast or a
+// system notification is the user's choice, via [ui.toast] delivery.
+func (c *Client) Notify(title, body, sound string) error {
+	params := map[string]any{"title": title}
+	if body != "" {
+		params["body"] = body
+	}
+	if sound != "" {
+		params["sound"] = sound
+	}
+	return c.Request("notification.show", params, nil)
+}

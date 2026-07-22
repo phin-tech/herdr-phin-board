@@ -334,6 +334,16 @@ func prDetailLines(pr gh.PR, width int) []string {
 	if s := prChecksSymbol(pr); s != "" {
 		lines = append(lines, prChecksStyle(pr).Render(truncate("checks "+string(pr.Checks)+" "+s, width)))
 	}
+
+	// Name what is failing: "checks fail" tells you to look, this tells you
+	// where. Passing checks are omitted -- a green wall answers no question.
+	for _, c := range pr.Notable {
+		mark, style := "✗", prFailStyle
+		if c.State == gh.ChecksPending {
+			mark, style = "·", prPendingStyle
+		}
+		lines = append(lines, style.Render(truncate("  "+mark+" "+c.Name, width)))
+	}
 	switch pr.Merge {
 	case gh.MergeConflict:
 		lines = append(lines, prFailStyle.Render(truncate("conflicts with base — needs a rebase", width)))

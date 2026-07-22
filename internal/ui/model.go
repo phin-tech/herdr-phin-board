@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/phin-tech/herdr-phin-board/internal/alert"
 	"github.com/phin-tech/herdr-phin-board/internal/gh"
 	"github.com/phin-tech/herdr-phin-board/internal/herdr"
 	"github.com/phin-tech/herdr-phin-board/internal/store"
@@ -121,6 +122,9 @@ type Model struct {
 	// them the board works exactly as before, just without PR columns.
 	gh      *gh.Client
 	prCache *gh.Cache
+	// alerts is what the watcher recorded while the board was closed.
+	alerts   *alert.Store
+	stateDir string
 	// prLoading guards against overlapping fetch rounds.
 	prLoading bool
 	// prProblemSaid keeps a broken gh from repeating itself every refresh.
@@ -182,24 +186,25 @@ func New(client *herdr.Client, board *store.Board) *Model {
 
 	// The cache lives beside the board file. PR state is derived, so a missing
 	// or unreadable cache costs one refetch rather than any of the user's work.
-	var cache *gh.Cache
+	stateDir := os.TempDir()
 	if path, err := store.Path(); err == nil {
-		cache = gh.LoadCache(filepath.Dir(path))
-	} else {
-		cache = gh.LoadCache(os.TempDir())
+		stateDir = filepath.Dir(path)
 	}
+	cache := gh.LoadCache(stateDir)
 
 	return &Model{
-		client:  client,
-		board:   board,
-		gh:      gh.New(),
-		prCache: cache,
-		input:   in,
-		layout:  parseLayout(board.Layout),
-		sort:    parseSort(board.TableSort),
-		width:   80,
-		height:  24,
-		events:  make(chan herdr.Event, 64),
+		client:   client,
+		board:    board,
+		gh:       gh.New(),
+		prCache:  cache,
+		alerts:   alert.Load(stateDir),
+		stateDir: stateDir,
+		input:    in,
+		layout:   parseLayout(board.Layout),
+		sort:     parseSort(board.TableSort),
+		width:    80,
+		height:   24,
+		events:   make(chan herdr.Event, 64),
 	}
 }
 
@@ -426,6 +431,15 @@ func (m *Model) rebuild() {
 
 	m.clampCursor()
 	m.clampColumnCursor()
+}
+
+// selectedBellCleared marks the space under the cursor seen.
+func (m *Model) selectedBellCleared() tea.Cmd {
+	sp := m.selected()
+	if sp == nil {
+		return nil
+	}
+	return m.clearBell(sp.Key)
 }
 
 // restoreColumnCursor keeps the kanban selection on the same card across a

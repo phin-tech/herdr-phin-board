@@ -112,15 +112,19 @@ func (m *Model) viewHeader() string {
 		left += dimStyle.Render(fmt.Sprintf("  /%s", m.filter))
 	}
 
-	right := fmt.Sprintf("%d live", live)
+	right := ""
+	if b := m.bellSummary(); b != "" {
+		right += b + dimStyle.Render(" · ")
+	}
+	right += fmt.Sprintf("%d live", live)
 	if m.showArchive {
 		right += fmt.Sprintf(" · %d archived", archived)
 	} else {
 		right += " · archive hidden"
 	}
-	right = dimStyle.Render(right + " ")
+	right += " "
 
-	return joinEnds(left, right, m.width)
+	return joinEnds(left, dimStyle.Render(right), m.width)
 }
 
 func (m *Model) viewFooter() string {
@@ -208,6 +212,9 @@ func (m *Model) renderRow(i int) string {
 	}
 
 	name := sp.Label
+	if b := m.bellFor(sp.Key); b != "" {
+		name = bellGlyph + " " + name
+	}
 	nameStyled := labelStyle.Render(pad(name, 22))
 	switch {
 	case held:
