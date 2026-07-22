@@ -203,7 +203,7 @@ func poll(ctx context.Context, stateDir string) error {
 		targets = append(targets, gh.Target{Dir: key})
 	}
 
-	found, problem := gh.New().FetchAll(ctx, targets)
+	found, problem := gh.NewBackground().FetchAll(ctx, targets)
 	if problem != nil {
 		// gh is missing or logged out. Nothing to compare, and nothing worth
 		// waking the user for.

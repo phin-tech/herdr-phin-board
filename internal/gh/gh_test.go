@@ -1,8 +1,12 @@
 package gh
 
 import (
+	"fmt"
+	"sync"
+
 	"context"
 	"errors"
+	"golang.org/x/time/rate"
 	"os"
 	"path/filepath"
 	"strings"
@@ -363,5 +367,130 @@ func TestTargetWithoutURLUsesTheBranch(t *testing.T) {
 		if strings.HasPrefix(a, "https://") {
 			t.Fatalf("a URL was passed with no target URL set: %v", got)
 		}
+	}
+}
+
+// Workers bounds how many gh processes exist at once. Without it a fifty-space
+// board would spawn fifty.
+func TestWorkersBoundConcurrency(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		inFlight int
+		peak     int
+	)
+
+	c := &Client{
+		Workers: 3,
+		Timeout: time.Second,
+		Run: func(context.Context, string, ...string) ([]byte, error) {
+			mu.Lock()
+			inFlight++
+			if inFlight > peak {
+				peak = inFlight
+			}
+			mu.Unlock()
+
+			time.Sleep(20 * time.Millisecond)
+
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			return []byte(openPR), nil
+		},
+	}
+
+	var targets []Target
+	for i := 0; i < 12; i++ {
+		targets = append(targets, Target{Dir: fmt.Sprintf("/tmp/%d", i)})
+	}
+	if _, err := c.FetchAll(context.Background(), targets); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if peak > 3 {
+		t.Fatalf("peak concurrency was %d, want at most 3", peak)
+	}
+	if peak < 2 {
+		t.Fatalf("peak concurrency was %d — the workers are not being used", peak)
+	}
+}
+
+// The limiter paces calls independently of concurrency: workers alone would
+// let a big board fire everything as fast as the pool could cycle.
+func TestLimiterPacesCalls(t *testing.T) {
+	c := &Client{
+		Workers: 8, // deliberately more workers than the rate allows
+		Timeout: time.Second,
+		Limiter: rate.NewLimiter(20, 1), // 20/s, no burst
+		Run: func(context.Context, string, ...string) ([]byte, error) {
+			return []byte(openPR), nil
+		},
+	}
+
+	var targets []Target
+	for i := 0; i < 6; i++ {
+		targets = append(targets, Target{Dir: fmt.Sprintf("/tmp/%d", i)})
+	}
+
+	start := time.Now()
+	if _, err := c.FetchAll(context.Background(), targets); err != nil {
+		t.Fatal(err)
+	}
+	elapsed := time.Since(start)
+
+	// Six calls at 20/s with a burst of one cannot finish in under ~250ms.
+	if elapsed < 200*time.Millisecond {
+		t.Fatalf("six calls took %s — the limiter is not pacing them", elapsed)
+	}
+}
+
+// Queueing behind the limiter is not the command being slow, so it must not
+// eat the per-call timeout.
+func TestLimiterWaitDoesNotConsumeTheTimeout(t *testing.T) {
+	c := &Client{
+		Workers: 1,
+		Timeout: 200 * time.Millisecond,
+		Limiter: rate.NewLimiter(5, 1), // 200ms between calls
+		Run: func(context.Context, string, ...string) ([]byte, error) {
+			return []byte(openPR), nil
+		},
+	}
+
+	got, err := c.FetchAll(context.Background(), []Target{
+		{Dir: "/a"}, {Dir: "/b"}, {Dir: "/c"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("got %d results, want 3 — a queued call was timed out", len(got))
+	}
+}
+
+// The background client exists to be gentler than the interactive one.
+func TestBackgroundIsGentlerThanForeground(t *testing.T) {
+	fg, bg := New(), NewBackground()
+
+	if bg.Workers >= fg.Workers {
+		t.Fatalf("background uses %d workers, foreground %d", bg.Workers, fg.Workers)
+	}
+	if bg.Limiter.Limit() >= fg.Limiter.Limit() {
+		t.Fatalf("background rate %v is not below foreground %v", bg.Limiter.Limit(), fg.Limiter.Limit())
+	}
+	if bg.Timeout <= fg.Timeout {
+		t.Fatal("background should allow a slower call, having nobody waiting")
+	}
+}
+
+// A nil limiter means no pacing, which the tests elsewhere rely on.
+func TestNilLimiterIsUnlimited(t *testing.T) {
+	c := fakeClient(map[string]string{"/tmp/repo": openPR})
+	if c.Limiter != nil {
+		t.Fatal("the fake client should have no limiter")
+	}
+	if _, err := c.Fetch(context.Background(), "/tmp/repo"); err != nil {
+		t.Fatal(err)
 	}
 }

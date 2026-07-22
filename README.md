@@ -160,6 +160,13 @@ drops the connection so the watcher exits at once rather than discovering the
 loss on its next tick, and a workspace appearing or closing nudges it to poll
 then instead of waiting out the timer. A burst of events still costs one poll.
 
+Lookups are both bounded and paced: a few calls run at once, and a token bucket
+meters how fast they leave. Concurrency alone is not enough — four workers will
+still fire fifty requests at a fifty-space board as fast as they can cycle.
+Foreground and background differ on purpose: with the board open you are waiting
+for an answer, so it favours latency; the watcher has two minutes and nobody
+looking, so it trickles.
+
 A lockfile means there is only ever one watcher, however many times you open the
 board, and it covers every space across every repo. Run it by hand with
 `herdr-phin-board watch` if you would rather.

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 // Checks summarises a PR's check runs.
@@ -75,15 +77,49 @@ type Runner func(ctx context.Context, dir string, args ...string) ([]byte, error
 // Client fetches PR state.
 type Client struct {
 	Run Runner
-	// Workers bounds concurrent gh calls so a board with many spaces does not
-	// open a connection per row.
+	// Workers bounds how many gh calls are in flight at once.
 	Workers int
 	Timeout time.Duration
+	// Limiter smooths the rate at which calls leave, independently of how many
+	// run concurrently. Workers alone would let a fifty-space board fire fifty
+	// requests as fast as four at a time can manage; this paces them. Nil
+	// means no limit.
+	Limiter *rate.Limiter
 }
 
-// New builds a client that shells out to gh.
+// Foreground and background want different things. Someone watching the board
+// is waiting for an answer, so latency wins; the watcher has two minutes and
+// nobody looking, so it can afford to be gentle.
+const (
+	foregroundWorkers = 4
+	foregroundRate    = 5 // calls per second
+	foregroundBurst   = 8
+
+	backgroundWorkers = 2
+	backgroundRate    = 1
+	backgroundBurst   = 4
+)
+
+// New builds a client for interactive use: the board is open and someone is
+// waiting, so it favours getting answers back quickly.
 func New() *Client {
-	return &Client{Run: execRunner, Workers: 4, Timeout: 10 * time.Second}
+	return &Client{
+		Run:     execRunner,
+		Workers: foregroundWorkers,
+		Timeout: 10 * time.Second,
+		Limiter: rate.NewLimiter(foregroundRate, foregroundBurst),
+	}
+}
+
+// NewBackground builds a client for the watcher: nobody is waiting, so it
+// trickles rather than bursts.
+func NewBackground() *Client {
+	return &Client{
+		Run:     execRunner,
+		Workers: backgroundWorkers,
+		Timeout: 15 * time.Second,
+		Limiter: rate.NewLimiter(backgroundRate, backgroundBurst),
+	}
 }
 
 func execRunner(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -180,6 +216,14 @@ func (c *Client) Fetch(ctx context.Context, dir string) (PR, error) {
 }
 
 func (c *Client) fetchTarget(ctx context.Context, target Target) (PR, error) {
+	// Wait for a token before starting the clock: time spent queued behind the
+	// rate limit is not the command being slow, and should not time it out.
+	if c.Limiter != nil {
+		if err := c.Limiter.Wait(ctx); err != nil {
+			return PR{}, ErrNoPR
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, c.Timeout)
 	defer cancel()
 
