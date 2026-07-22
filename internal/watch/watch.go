@@ -100,9 +100,10 @@ func Run(ctx context.Context, stateDir string, interval time.Duration) error {
 	defer ticker.Stop()
 
 	settings := config.Load()
+	client := gh.NewBackground()
 
 	for {
-		if err := poll(ctx, stateDir, settings.Notifications); err != nil {
+		if err := poll(ctx, stateDir, settings.Notifications, client); err != nil {
 			// Herdr has stopped, so there is nothing to watch and nowhere to
 			// deliver a notification. Exiting beats spinning.
 			return err
@@ -167,7 +168,11 @@ func drain(ch <-chan struct{}, window time.Duration) {
 }
 
 // poll does one round: read the board, ask GitHub, notify on what changed.
-func poll(ctx context.Context, stateDir string, notify bool) error {
+//
+// The GitHub client is passed in rather than built here, so this -- the part
+// that decides what is worth waking someone for -- can be tested without a
+// network.
+func poll(ctx context.Context, stateDir string, notify bool, prs *gh.Client) error {
 	client, err := herdr.New()
 	if err != nil {
 		return err
@@ -206,7 +211,7 @@ func poll(ctx context.Context, stateDir string, notify bool) error {
 		targets = append(targets, gh.Target{Dir: key})
 	}
 
-	found, problem := gh.NewBackground().FetchAll(ctx, targets)
+	found, problem := prs.FetchAll(ctx, targets)
 	if problem != nil {
 		// gh is missing or logged out. Nothing to compare, and nothing worth
 		// waking the user for.

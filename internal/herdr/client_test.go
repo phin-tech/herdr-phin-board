@@ -2,11 +2,12 @@ package herdr
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/phin-tech/herdr-phin-board/internal/herdrtest"
 )
 
 func TestNewRequiresASocketPath(t *testing.T) {
@@ -17,8 +18,8 @@ func TestNewRequiresASocketPath(t *testing.T) {
 }
 
 func TestRequestRoundTrip(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{"type": "ok"})
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{"type": "ok"})
 
 	c, err := New()
 	if err != nil {
@@ -35,7 +36,7 @@ func TestRequestRoundTrip(t *testing.T) {
 		t.Fatalf("decoded %+v", out)
 	}
 
-	req := f.lastRequest(t)
+	req := f.LastAny(t)
 	if req.Method != "ping" {
 		t.Fatalf("method = %q", req.Method)
 	}
@@ -46,8 +47,8 @@ func TestRequestRoundTrip(t *testing.T) {
 
 // An error reply must surface as an error, not as an empty success.
 func TestErrorReplyBecomesAnError(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.fail("not_found", "no such workspace")
+	f := herdrtest.Start(t)
+	f.Fail("not_found", "no such workspace")
 
 	c, _ := New()
 	err := c.Request("workspace.get", map[string]any{"workspace_id": "w9"}, nil)
@@ -63,8 +64,8 @@ func TestErrorReplyBecomesAnError(t *testing.T) {
 
 // A server that accepts and says nothing must not hang the board for ever.
 func TestNoReplyDoesNotHangForEver(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.reply(func(request) any { return nil })
+	f := herdrtest.Start(t)
+	f.Handle(func(herdrtest.Request) any { return nil })
 
 	c, _ := New()
 	done := make(chan error, 1)
@@ -94,7 +95,7 @@ func TestUnreachableSocketIsAnError(t *testing.T) {
 // Snapshots run well past bufio.Scanner's 64KiB default, which is why the
 // buffer is raised. A reply larger than that must still decode.
 func TestLargeReplyDecodes(t *testing.T) {
-	f := newFakeHerdr(t)
+	f := herdrtest.Start(t)
 
 	panes := make([]map[string]any, 0, 400)
 	for i := 0; i < 400; i++ {
@@ -105,7 +106,7 @@ func TestLargeReplyDecodes(t *testing.T) {
 			"cwd":          "/tmp/" + strings.Repeat("deep/", 40),
 		})
 	}
-	f.ok(map[string]any{
+	f.OK(map[string]any{
 		"snapshot": map[string]any{
 			"workspaces": []map[string]any{{"workspace_id": "w1", "label": "big", "active_tab_id": "w1:t1"}},
 			"panes":      panes,
@@ -125,8 +126,8 @@ func TestLargeReplyDecodes(t *testing.T) {
 // The workspace object carries no cwd; it comes from the panes. The active
 // tab's pane wins, since that is the directory you are actually looking at.
 func TestWorkspaceCwdComesFromTheActiveTabsPane(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{
 		"snapshot": map[string]any{
 			"workspaces": []map[string]any{
 				{"workspace_id": "w1", "label": "api", "active_tab_id": "w1:t2"},
@@ -152,8 +153,8 @@ func TestWorkspaceCwdComesFromTheActiveTabsPane(t *testing.T) {
 }
 
 func TestWorkspaceWithNoPanesHasNoCwd(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{
 		"snapshot": map[string]any{
 			"workspaces": []map[string]any{{"workspace_id": "w1", "label": "empty"}},
 			"panes":      []map[string]any{},
@@ -170,15 +171,15 @@ func TestWorkspaceWithNoPanesHasNoCwd(t *testing.T) {
 // A nil token clears the badge; a value sets it. Getting this backwards would
 // leave stale statuses in the sidebar.
 func TestReportTokenSendsNullToClear(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{"type": "ok"})
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{"type": "ok"})
 	c, _ := New()
 
 	value := "Waiting"
 	if err := c.ReportToken("w1", "status", &value); err != nil {
 		t.Fatal(err)
 	}
-	params := paramsOf(t, f.lastRequest(t))
+	params := herdrtest.Params(t, f.LastAny(t))
 	tokens := params["tokens"].(map[string]any)
 	if tokens["status"] != "Waiting" {
 		t.Fatalf("tokens = %+v", tokens)
@@ -190,14 +191,14 @@ func TestReportTokenSendsNullToClear(t *testing.T) {
 	if err := c.ReportToken("w1", "status", nil); err != nil {
 		t.Fatal(err)
 	}
-	tokens = paramsOf(t, f.lastRequest(t))["tokens"].(map[string]any)
+	tokens = herdrtest.Params(t, f.LastAny(t))["tokens"].(map[string]any)
 	if v, ok := tokens["status"]; !ok || v != nil {
 		t.Fatalf("clearing sent %#v, want an explicit null", v)
 	}
 }
 
 func TestReportTokenRejectsAnEmptyWorkspace(t *testing.T) {
-	newFakeHerdr(t)
+	herdrtest.Start(t)
 	c, _ := New()
 	value := "x"
 	if err := c.ReportToken("", "status", &value); err == nil {
@@ -206,8 +207,8 @@ func TestReportTokenRejectsAnEmptyWorkspace(t *testing.T) {
 }
 
 func TestAgentsIgnoresNothingAndParsesAll(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{
 		"agents": []map[string]any{
 			{"agent": "claude", "agent_status": "idle", "pane_id": "w1:p1", "workspace_id": "w1", "tab_id": "w1:t1"},
 			{"agent_status": "unknown", "pane_id": "w1:p2", "workspace_id": "w1", "tab_id": "w1:t1"},
@@ -233,18 +234,18 @@ func TestAgentsIgnoresNothingAndParsesAll(t *testing.T) {
 }
 
 func TestSendToAgentAndFocusUseTarget(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{"type": "ok"})
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{"type": "ok"})
 	c, _ := New()
 
 	if err := c.SendToAgent("w1:p1", "hello"); err != nil {
 		t.Fatal(err)
 	}
-	req := f.lastRequest(t)
+	req := f.LastAny(t)
 	if req.Method != "agent.send" {
 		t.Fatalf("method = %q", req.Method)
 	}
-	params := paramsOf(t, req)
+	params := herdrtest.Params(t, req)
 	if params["target"] != "w1:p1" || params["text"] != "hello" {
 		t.Fatalf("params = %+v", params)
 	}
@@ -252,20 +253,20 @@ func TestSendToAgentAndFocusUseTarget(t *testing.T) {
 	if err := c.FocusAgent("w1:p1"); err != nil {
 		t.Fatal(err)
 	}
-	if f.lastRequest(t).Method != "agent.focus" {
+	if f.LastAny(t).Method != "agent.focus" {
 		t.Fatal("focus used the wrong method")
 	}
 }
 
 func TestNotifyOmitsEmptyFields(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.ok(map[string]any{"type": "notification_show"})
+	f := herdrtest.Start(t)
+	f.OK(map[string]any{"type": "notification_show"})
 	c, _ := New()
 
 	if err := c.Notify("Title", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	params := paramsOf(t, f.lastRequest(t))
+	params := herdrtest.Params(t, f.LastAny(t))
 	if params["title"] != "Title" {
 		t.Fatalf("params = %+v", params)
 	}
@@ -279,8 +280,8 @@ func TestNotifyOmitsEmptyFields(t *testing.T) {
 func TestReadPaneAcceptsEitherField(t *testing.T) {
 	for _, field := range []string{"content", "text"} {
 		t.Run(field, func(t *testing.T) {
-			f := newFakeHerdr(t)
-			f.ok(map[string]any{field: "line one\nline two"})
+			f := herdrtest.Start(t)
+			f.OK(map[string]any{field: "line one\nline two"})
 
 			c, _ := New()
 			got, err := c.ReadPane("w1:p1", 100)
@@ -295,8 +296,8 @@ func TestReadPaneAcceptsEitherField(t *testing.T) {
 }
 
 func TestRenameAndCreateWorkspace(t *testing.T) {
-	f := newFakeHerdr(t)
-	f.reply(func(req request) any {
+	f := herdrtest.Start(t)
+	f.Handle(func(req herdrtest.Request) any {
 		if req.Method == "workspace.create" {
 			return map[string]any{
 				"id":     req.ID,
@@ -310,7 +311,7 @@ func TestRenameAndCreateWorkspace(t *testing.T) {
 	if err := c.RenameWorkspace("w1", "new name"); err != nil {
 		t.Fatal(err)
 	}
-	if params := paramsOf(t, f.lastRequest(t)); params["label"] != "new name" {
+	if params := herdrtest.Params(t, f.LastAny(t)); params["label"] != "new name" {
 		t.Fatalf("params = %+v", params)
 	}
 
@@ -326,7 +327,7 @@ func TestRenameAndCreateWorkspace(t *testing.T) {
 // The subscription acks first and then streams; the ack must not be delivered
 // as though it were an event.
 func TestSubscribeStreamsEventsAfterTheAck(t *testing.T) {
-	f := newFakeHerdr(t)
+	f := herdrtest.Start(t)
 
 	c, _ := New()
 	events := make(chan Event, 8)
@@ -335,8 +336,8 @@ func TestSubscribeStreamsEventsAfterTheAck(t *testing.T) {
 
 	go func() { _ = c.Subscribe(ctx, WorkspaceSubscriptions, events) }()
 
-	f.stream <- `{"event":"workspace_created","data":{"type":"workspace_created"}}`
-	f.stream <- `{"event":"workspace_focused","data":{"type":"workspace_focused"}}`
+	f.Stream <- `{"event":"workspace_created","data":{"type":"workspace_created"}}`
+	f.Stream <- `{"event":"workspace_focused","data":{"type":"workspace_focused"}}`
 
 	for _, want := range []string{"workspace_created", "workspace_focused"} {
 		select {
@@ -350,8 +351,8 @@ func TestSubscribeStreamsEventsAfterTheAck(t *testing.T) {
 	}
 
 	// The subscription request asks for the types the board cares about.
-	waitFor(t, "the subscribe request", func() bool { return len(f.seen()) > 0 })
-	params := paramsOf(t, f.lastRequest(t))
+	herdrtest.WaitFor(t, "the subscribe request", func() bool { return len(f.Requests()) > 0 })
+	params := herdrtest.Params(t, f.LastAny(t))
 	subs, ok := params["subscriptions"].([]any)
 	if !ok || len(subs) != len(WorkspaceSubscriptions) {
 		t.Fatalf("subscriptions = %#v", params["subscriptions"])
@@ -361,7 +362,7 @@ func TestSubscribeStreamsEventsAfterTheAck(t *testing.T) {
 // Herdr going away must end the stream, since that is the watcher's signal to
 // stop.
 func TestSubscribeReturnsWhenTheServerGoes(t *testing.T) {
-	f := newFakeHerdr(t)
+	f := herdrtest.Start(t)
 
 	c, _ := New()
 	done := make(chan error, 1)
@@ -369,9 +370,9 @@ func TestSubscribeReturnsWhenTheServerGoes(t *testing.T) {
 		done <- c.Subscribe(context.Background(), WorkspaceSubscriptions, make(chan Event, 4))
 	}()
 
-	waitFor(t, "the subscription", func() bool { return len(f.seen()) > 0 })
+	herdrtest.WaitFor(t, "the subscription", func() bool { return len(f.Requests()) > 0 })
 	f.Close()
-	close(f.stream)
+	close(f.Stream)
 
 	select {
 	case <-done:
@@ -381,7 +382,7 @@ func TestSubscribeReturnsWhenTheServerGoes(t *testing.T) {
 }
 
 func TestSubscribeStopsOnContextCancel(t *testing.T) {
-	newFakeHerdr(t)
+	herdrtest.Start(t)
 
 	c, _ := New()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -401,7 +402,7 @@ func TestSubscribeStopsOnContextCancel(t *testing.T) {
 
 // Garbage on the wire must be skipped rather than delivered as an empty event.
 func TestSubscribeSkipsUnparseableLines(t *testing.T) {
-	f := newFakeHerdr(t)
+	f := herdrtest.Start(t)
 
 	c, _ := New()
 	events := make(chan Event, 4)
@@ -409,9 +410,9 @@ func TestSubscribeSkipsUnparseableLines(t *testing.T) {
 	defer cancel()
 	go func() { _ = c.Subscribe(ctx, WorkspaceSubscriptions, events) }()
 
-	f.stream <- `not json at all`
-	f.stream <- `{"no_event_field":true}`
-	f.stream <- `{"event":"workspace_closed","data":{}}`
+	f.Stream <- `not json at all`
+	f.Stream <- `{"no_event_field":true}`
+	f.Stream <- `{"event":"workspace_closed","data":{}}`
 
 	select {
 	case ev := <-events:
@@ -426,23 +427,9 @@ func TestSubscribeSkipsUnparseableLines(t *testing.T) {
 func TestPluginStateDirIsNotRequired(t *testing.T) {
 	// Nothing here uses it, but a missing variable must not break the client.
 	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
-	newFakeHerdr(t)
+	herdrtest.Start(t)
 	if _, err := New(); err != nil {
 		t.Fatal(err)
 	}
 	_ = os.Getenv("HERDR_PLUGIN_STATE_DIR")
-}
-
-// paramsOf decodes a recorded request's params.
-func paramsOf(t *testing.T, req request) map[string]any {
-	t.Helper()
-	body, err := json.Marshal(req.Params)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(body, &out); err != nil {
-		t.Fatalf("params were not an object: %v", err)
-	}
-	return out
 }
