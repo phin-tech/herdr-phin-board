@@ -51,6 +51,8 @@ type PR struct {
 type Check struct {
 	Name  string `json:"name"`
 	State Checks `json:"state"` // ChecksFail or ChecksPending
+	// URL points at the run or job, so a failing check can be opened.
+	URL string `json:"url,omitempty"`
 }
 
 // Merge summarises whether the PR can actually land.
@@ -150,6 +152,8 @@ type rawPR struct {
 		Name         string `json:"name"`         // check runs
 		Context      string `json:"context"`      // status contexts
 		WorkflowName string `json:"workflowName"` // check runs
+		DetailsURL   string `json:"detailsUrl"`   // check runs
+		TargetURL    string `json:"targetUrl"`    // status contexts
 		Status       string `json:"status"`       // check runs
 		Conclusion   string `json:"conclusion"`   // check runs
 		State        string `json:"state"`        // status contexts
@@ -229,11 +233,15 @@ func notable(raw rawPR) []Check {
 		if name == "" {
 			continue
 		}
+		url := c.DetailsURL
+		if url == "" {
+			url = c.TargetURL
+		}
 		switch {
 		case checkFailed(c.Conclusion, c.State):
-			failed = append(failed, Check{Name: name, State: ChecksFail})
+			failed = append(failed, Check{Name: name, State: ChecksFail, URL: url})
 		case checkRunning(c.Status, c.State):
-			running = append(running, Check{Name: name, State: ChecksPending})
+			running = append(running, Check{Name: name, State: ChecksPending, URL: url})
 		}
 	}
 

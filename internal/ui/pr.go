@@ -23,6 +23,7 @@ var (
 	prFailStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("203"))
 	prPendingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	prDimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	prLinkStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("111")).Underline(true)
 )
 
 type prLoadedMsg struct {
@@ -319,7 +320,7 @@ func prStyled(pr gh.PR, width int) string {
 }
 
 // prDetailLines are the fuller form used in the detail pane and modal.
-func prDetailLines(pr gh.PR, width int) []string {
+func prDetailLines(pr gh.PR, width int) []detailLine {
 	state := strings.ToLower(pr.State)
 	if pr.IsDraft {
 		state = "draft"
@@ -329,10 +330,11 @@ func prDetailLines(pr gh.PR, width int) []string {
 	if r := prReview(pr); r != "" {
 		head += " · " + r
 	}
-	lines := []string{prDimStyle.Render(truncate(head, width))}
+	// The heading stands for the PR itself, so clicking it opens the PR.
+	lines := []detailLine{{text: prLinkStyle.Render(truncate(head, width)), url: pr.URL}}
 
 	if s := prChecksSymbol(pr); s != "" {
-		lines = append(lines, prChecksStyle(pr).Render(truncate("checks "+string(pr.Checks)+" "+s, width)))
+		lines = append(lines, detailLine{text: prChecksStyle(pr).Render(truncate("checks "+string(pr.Checks)+" "+s, width))})
 	}
 
 	// Name what is failing: "checks fail" tells you to look, this tells you
@@ -342,16 +344,22 @@ func prDetailLines(pr gh.PR, width int) []string {
 		if c.State == gh.ChecksPending {
 			mark, style = "·", prPendingStyle
 		}
-		lines = append(lines, style.Render(truncate("  "+mark+" "+c.Name, width)))
+		if c.URL != "" {
+			style = style.Underline(true)
+		}
+		lines = append(lines, detailLine{
+			text: style.Render(truncate("  "+mark+" "+c.Name, width)),
+			url:  c.URL,
+		})
 	}
 	switch pr.Merge {
 	case gh.MergeConflict:
-		lines = append(lines, prFailStyle.Render(truncate("conflicts with base — needs a rebase", width)))
+		lines = append(lines, detailLine{text: prFailStyle.Render(truncate("conflicts with base — needs a rebase", width))})
 	case gh.MergeBehind:
-		lines = append(lines, prPendingStyle.Render(truncate("behind base", width)))
+		lines = append(lines, detailLine{text: prPendingStyle.Render(truncate("behind base", width))})
 	}
 	for _, line := range wrap(pr.Title, width) {
-		lines = append(lines, prDimStyle.Render(line))
+		lines = append(lines, detailLine{text: prDimStyle.Render(line), url: pr.URL})
 	}
 	return lines
 }

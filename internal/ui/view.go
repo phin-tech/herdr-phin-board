@@ -24,6 +24,9 @@ var (
 
 // View renders the board.
 func (m *Model) View() string {
+	// Link regions are rebuilt every frame, so a click is always tested
+	// against what is on screen now rather than a stale layout.
+	m.resetLinks()
 	return m.overlayMenu(m.viewFrame())
 }
 
@@ -77,10 +80,14 @@ func (m *Model) viewFrame() string {
 	right := m.detailLines(m.selected(), inner)
 	body := m.bodyWidth()
 
+	// The pane starts two rows down (header, blank) and to the right of the
+	// separator, which is where its links are drawn.
+	m.trackLinks(right, 2, body+1, m.width-1)
+
 	for i := 0; i < height; i++ {
 		cell := ""
 		if i < len(right) {
-			cell = right[i]
+			cell = right[i].text
 		}
 		b.WriteString(padCell(truncateStyled(left[i], body-1), body-1))
 		b.WriteString(dimStyle.Render("│ "))

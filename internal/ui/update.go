@@ -75,6 +75,12 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// A link beats everything below it: clicking a PR or a check should open
+	// it, not move the cursor to that row.
+	if cmd, hit := m.openLinkAt(msg.X, msg.Y); hit {
+		return m, cmd
+	}
+
 	if m.menuOpen {
 		// A click inside the dropdown chooses; anywhere else dismisses it,
 		// which is what people expect of an open menu.

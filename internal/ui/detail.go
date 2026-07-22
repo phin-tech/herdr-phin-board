@@ -20,6 +20,34 @@ const (
 
 var detailKeyStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
+// detailLine is one rendered line, optionally standing for a URL.
+//
+// Herdr opens URLs in pane content on click, but only in panes that have not
+// taken the mouse -- and this board has, for the view switcher. So the links
+// are ours to handle: the text can then be a short label rather than a raw URL
+// that would wrap and break the click anyway.
+type detailLine struct {
+	text string
+	url  string
+}
+
+func plain(lines ...string) []detailLine {
+	out := make([]detailLine, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, detailLine{text: l})
+	}
+	return out
+}
+
+// texts drops the links, for the callers that only draw.
+func texts(lines []detailLine) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, l.text)
+	}
+	return out
+}
+
 // detailPaneWidth is the room the list view gives the pane, separator
 // included. Zero means no pane: either turned off, or the terminal is too
 // narrow to split without crushing the list.
@@ -54,9 +82,9 @@ func (m *Model) rowWidth() int {
 }
 
 // detailLines renders one space's full state, wrapped to width.
-func (m *Model) detailLines(sp *space, width int) []string {
+func (m *Model) detailLines(sp *space, width int) []detailLine {
 	if sp == nil {
-		return []string{dimStyle.Render(truncate("nothing selected", width))}
+		return plain(dimStyle.Render(truncate("nothing selected", width)))
 	}
 
 	name := sp.Label
@@ -66,42 +94,39 @@ func (m *Model) detailLines(sp *space, width int) []string {
 		name = titleStyle.Render(truncate(name, width))
 	}
 
-	lines := []string{
-		name,
-		dimStyle.Render(strings.Repeat("─", width)),
-	}
+	lines := plain(name, dimStyle.Render(strings.Repeat("─", width)))
 
 	if st, ok := m.board.StatusByID(sp.StatusID); ok {
-		lines = append(lines, lipgloss.NewStyle().Foreground(lipgloss.Color(st.Color)).Render(truncate(st.Label, width)))
+		lines = append(lines, plain(lipgloss.NewStyle().Foreground(lipgloss.Color(st.Color)).Render(truncate(st.Label, width)))...)
 	}
-	lines = append(lines, "")
+	lines = append(lines, plain("")...)
 
 	// The note is the reason this view exists, so it gets the room it needs.
 	if sp.Note != "" {
 		for _, line := range wrap(sp.Note, width) {
-			lines = append(lines, noteStyle.Render(line))
+			lines = append(lines, plain(noteStyle.Render(line))...)
 		}
 	} else {
-		lines = append(lines, dimStyle.Render(truncate("no note — press n to add one", width)))
+		lines = append(lines, plain(dimStyle.Render(truncate("no note — press n to add one", width)))...)
 	}
-	lines = append(lines, "")
+	lines = append(lines, plain("")...)
 
 	// What happened while you were away comes first: it is the reason the row
 	// was calling for attention.
-	if lines2 := m.alertLines(sp.Key, width); len(lines2) > 0 {
-		lines = append(lines, lines2...)
-		lines = append(lines, "")
+	if alerts := m.alertLines(sp.Key, width); len(alerts) > 0 {
+		lines = append(lines, plain(alerts...)...)
+		lines = append(lines, plain("")...)
 	}
 
 	// PR context sits between the note and the machine facts: it is about the
 	// work, but unlike the note it is not something you wrote.
 	if pr, ok := m.prFor(sp.Key); ok {
 		lines = append(lines, prDetailLines(pr, width)...)
-		lines = append(lines, "")
+		lines = append(lines, plain("")...)
 	}
 
 	for _, line := range wrap(abbreviate(sp.Key), width) {
-		lines = append(lines, dimStyle.Render(line))
+		lines = append(lines, plain(dimStyle.Render(line))...)
 	}
 
 	where := "archived"
@@ -114,10 +139,10 @@ func (m *Model) detailLines(sp *space, width int) []string {
 			where += " · " + sp.AgentStatus
 		}
 	}
-	lines = append(lines, dimStyle.Render(truncate(where, width)))
+	lines = append(lines, plain(dimStyle.Render(truncate(where, width)))...)
 
 	if !sp.UpdatedAt.IsZero() {
-		lines = append(lines, dimStyle.Render(truncate("changed "+humanAge(sp.UpdatedAt), width)))
+		lines = append(lines, plain(dimStyle.Render(truncate("changed "+humanAge(sp.UpdatedAt), width)))...)
 	}
 	return lines
 }
@@ -132,7 +157,8 @@ func (m *Model) viewDetailModal() string {
 	// lipgloss counts padding inside Width, so the content gets two fewer
 	// columns than the box -- otherwise the rule wraps onto a second line.
 	inner := width - 2
-	body := strings.Join(m.detailLines(m.selected(), inner), "\n")
+	content := m.detailLines(m.selected(), inner)
+	body := strings.Join(texts(content), "\n")
 	body += "\n\n" + detailKeyStyle.Render(truncate("n note · s status · enter jump · esc close", inner))
 
 	box := lipgloss.NewStyle().
@@ -141,6 +167,13 @@ func (m *Model) viewDetailModal() string {
 		Padding(0, 1).
 		Width(width).
 		Render(body)
+
+	// Record where each line landed so a click can find its URL. The box is
+	// centred, and its border and padding sit inside that.
+	boxW, boxH := lipgloss.Width(box), lipgloss.Height(box)
+	originX := max0((m.width - boxW) / 2)
+	originY := max0((m.height - boxH) / 2)
+	m.trackLinks(content, originY+1, originX+2, originX+1+inner)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, box)
 }

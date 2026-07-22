@@ -165,6 +165,9 @@ type Model struct {
 	// chord holds a pending multi-key prefix, vim style: g then g or p.
 	chord string
 
+	// links are the clickable regions drawn on the last frame.
+	links []linkRegion
+
 	// The title doubles as a view switcher dropdown.
 	menuOpen bool
 	menuIdx  int

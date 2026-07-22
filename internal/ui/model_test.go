@@ -2245,3 +2245,86 @@ func TestFailingCheckNamesInDetail(t *testing.T) {
 		}
 	}
 }
+
+// Clicking the PR heading or a check opens it. Herdr would do this itself in a
+// pane that had not taken the mouse; this board has, so it must.
+func TestClickingAPRLineOpensIt(t *testing.T) {
+	opened := captureOpens(t)
+	m := newTestModel(t)
+	m.width, m.height = 120, 24
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{
+		Number: 4, State: "OPEN", Checks: gh.ChecksFail,
+		URL:   "https://github.com/o/r/pull/4",
+		Title: "Fix the thing",
+		Notable: []gh.Check{
+			{Name: "test", State: gh.ChecksFail, URL: "https://github.com/o/r/actions/runs/9"},
+		},
+	})
+	selectSpace(t, m, "/tmp/api")
+	_ = m.View() // regions are recorded during render
+
+	if len(m.links) == 0 {
+		t.Fatal("no clickable regions were recorded")
+	}
+
+	// The PR heading.
+	head := m.links[0]
+	if _, cmd := m.Update(click(head.x0+1, head.row)); cmd != nil {
+		cmd()
+	}
+	if len(*opened) != 1 || (*opened)[0] != "https://github.com/o/r/pull/4" {
+		t.Fatalf("opened %v, want the PR", *opened)
+	}
+
+	// A failing check opens its run, not the PR.
+	var checkRegion linkRegion
+	for _, r := range m.links {
+		if strings.Contains(r.url, "/actions/runs/") {
+			checkRegion = r
+		}
+	}
+	if checkRegion.url == "" {
+		t.Fatal("the failing check is not clickable")
+	}
+	if _, cmd := m.Update(click(checkRegion.x0+1, checkRegion.row)); cmd != nil {
+		cmd()
+	}
+	if len(*opened) != 2 || (*opened)[1] != "https://github.com/o/r/actions/runs/9" {
+		t.Fatalf("opened %v, want the check run", *opened)
+	}
+}
+
+// A click that misses a link must still do its ordinary job.
+func TestClickingElsewhereDoesNotOpenAnything(t *testing.T) {
+	opened := captureOpens(t)
+	m := newTestModel(t)
+	m.width, m.height = 120, 24
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{Number: 4, State: "OPEN", URL: "https://github.com/o/r/pull/4"})
+	selectSpace(t, m, "/tmp/api")
+	_ = m.View()
+
+	// The left-hand list, well away from the detail pane.
+	send(t, m, click(5, 3))
+	if len(*opened) != 0 {
+		t.Fatalf("a click on the list opened %v", *opened)
+	}
+}
+
+// Regions are rebuilt every frame, so a click is tested against what is on
+// screen rather than a layout that has since changed.
+func TestLinkRegionsResetEachFrame(t *testing.T) {
+	m := newTestModel(t)
+	m.width, m.height = 120, 24
+	send(t, m, liveWorkspaces())
+	withPR(m, "/tmp/api", gh.PR{Number: 4, State: "OPEN", URL: "https://github.com/o/r/pull/4"})
+	selectSpace(t, m, "/tmp/api")
+
+	_ = m.View()
+	first := len(m.links)
+	_ = m.View()
+	if len(m.links) != first {
+		t.Fatalf("regions accumulated across frames: %d then %d", first, len(m.links))
+	}
+}
