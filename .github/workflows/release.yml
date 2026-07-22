@@ -1,8 +1,9 @@
 name: release
 
 # Every push to main republishes a rolling "latest" release, so someone without
-# Go on their machine can still install the plugin. Tagged pushes (v1.2.3) cut
-# a permanent release alongside it.
+# Go on their machine can still install the plugin. A v* tag cuts a permanent
+# release and stamps that version into the binary and the manifest, so
+# `herdr plugin list` and `herdr-phin-board version` cannot disagree.
 on:
   push:
     branches: [main]
@@ -32,14 +33,27 @@ jobs:
           go-version: stable
           cache: true
 
+      - name: resolve version
+        id: version
+        run: |
+          # A tag is the version; anything else is a rolling build off main.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.0.0-main.${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           name="herdr-phin-board-${GOOS}-${GOARCH}"
-          go build -trimpath -ldflags "-s -w" -o "dist/${name}" ./cmd/herdr-phin-board
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/phin-tech/herdr-phin-board/internal/version.Version=${VERSION}" \
+            -o "dist/${name}" ./cmd/herdr-phin-board
           (cd dist && shasum -a 256 "${name}" > "${name}.sha256")
 
       - uses: actions/upload-artifact@v4
@@ -77,3 +91,35 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "${GITHUB_REF_NAME}" dist/* --generate-notes
+
+  # A tagged release is the moment the manifest's version becomes wrong, so it
+  # is corrected on the spot. Herdr reads that file to report what is installed;
+  # left stale it would claim 0.1.0 for ever.
+  sync-manifest:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ github.token }}
+
+      - name: rewrite the manifest version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          current=$(sed -n 's/^version = "\(.*\)"$/\1/p' herdr-plugin.toml)
+          if [ "$current" = "$version" ]; then
+            echo "manifest already at ${version}"
+            exit 0
+          fi
+
+          sed -i "0,/^version = \".*\"$/s//version = \"${version}\"/" herdr-plugin.toml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add herdr-plugin.toml
+          git commit -m "Set the manifest version to ${version}
+
+Released ${GITHUB_REF_NAME}. Herdr reads this file to report what is
+installed, so it has to match the tag."
+          git push origin main

@@ -33,4 +33,16 @@ jobs:
       # The manifest's build command is what `herdr plugin install` runs, so a
       # break there is a broken install even when the tests pass.
       - name: build as the plugin manifest does
-        run: go build -o bin/herdr-phin-board ./cmd/herdr-phin-board
+        run: sh build.sh
+
+      # The manifest version is what Herdr reports for the installed plugin, so
+      # a build that disagrees with it would misreport itself.
+      - name: the binary agrees with the manifest
+        run: |
+          manifest=$(sed -n 's/^version = "\(.*\)"$/\1/p' herdr-plugin.toml)
+          binary=$(./bin/herdr-phin-board version)
+          echo "manifest=${manifest} binary=${binary}"
+          [ "$manifest" = "$binary" ] || {
+            echo "the built binary reports a different version from the manifest" >&2
+            exit 1
+          }

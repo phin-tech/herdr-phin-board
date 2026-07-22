@@ -11,7 +11,13 @@ repo="phin-tech/herdr-phin-board"
 mkdir -p bin
 
 if command -v go >/dev/null 2>&1; then
-  exec go build -trimpath -o "$out" ./cmd/herdr-phin-board
+  # Stamp the manifest's version, so a source build reports the same thing
+  # `herdr plugin list` does rather than "dev".
+  version=$(sed -n 's/^version = "\(.*\)"$/\1/p' herdr-plugin.toml 2>/dev/null || true)
+  [ -n "$version" ] || version="dev"
+  exec go build -trimpath \
+    -ldflags "-X github.com/phin-tech/herdr-phin-board/internal/version.Version=${version}" \
+    -o "$out" ./cmd/herdr-phin-board
 fi
 
 echo "go not found on PATH; downloading a prebuilt binary instead" >&2

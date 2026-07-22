@@ -15,9 +15,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/phin-tech/herdr-phin-board/internal/config"
 	"github.com/phin-tech/herdr-phin-board/internal/herdr"
 	"github.com/phin-tech/herdr-phin-board/internal/store"
 	"github.com/phin-tech/herdr-phin-board/internal/ui"
+	"github.com/phin-tech/herdr-phin-board/internal/version"
 	"github.com/phin-tech/herdr-phin-board/internal/watch"
 )
 
@@ -49,7 +51,14 @@ func run(args []string) error {
 			if err != nil {
 				return err
 			}
-			return watch.Run(context.Background(), dir, watch.Interval)
+			return watch.Run(context.Background(), dir, config.Load().PollInterval)
+
+		case "config":
+			return showConfig(args[1:])
+
+		case "version", "--version", "-v":
+			fmt.Println(version.Version)
+			return nil
 
 		case "prune":
 			n := board.Prune()
@@ -59,7 +68,7 @@ func run(args []string) error {
 			fmt.Printf("pruned %d entries for directories that no longer exist\n", n)
 			return nil
 		default:
-			return fmt.Errorf("unknown command %q (want: sync, watch, prune)", args[0])
+			return fmt.Errorf("unknown command %q (want: sync, watch, config, version, prune)", args[0])
 		}
 	}
 
@@ -148,4 +157,33 @@ func spawnWatcher() {
 		// Not waited on: it is meant to outlive us.
 		_ = cmd.Process.Release()
 	}
+}
+
+// showConfig prints the settings in force and where they came from, so a value
+// that is not taking effect can be traced to the file it should be in.
+func showConfig(args []string) error {
+	if len(args) > 0 && args[0] == "--init" {
+		path, err := config.WriteExample()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("wrote %s\n", path)
+		return nil
+	}
+
+	s := config.Load()
+	if _, err := os.Stat(s.Path); err != nil {
+		fmt.Printf("no config file at %s — using defaults\n", s.Path)
+		fmt.Println("create one with: herdr-phin-board config --init")
+	} else {
+		fmt.Printf("config: %s\n", s.Path)
+	}
+
+	fmt.Printf("poll_interval  %s\n", s.PollInterval)
+	fmt.Printf("notifications  %t\n", s.Notifications)
+
+	for _, p := range s.Problems {
+		fmt.Fprintln(os.Stderr, "warning:", p)
+	}
+	return nil
 }

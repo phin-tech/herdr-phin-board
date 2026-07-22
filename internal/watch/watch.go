@@ -15,15 +15,16 @@ import (
 	"time"
 
 	"github.com/phin-tech/herdr-phin-board/internal/alert"
+	"github.com/phin-tech/herdr-phin-board/internal/config"
 	"github.com/phin-tech/herdr-phin-board/internal/gh"
 	"github.com/phin-tech/herdr-phin-board/internal/herdr"
 	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
 
-// Interval is how often the watcher looks. Slow enough to be inconsequential
-// against GitHub's rate limit, fast enough that a failing check reaches you
-// while you still care.
-const Interval = 2 * time.Minute
+// Interval is the default cadence, overridden by poll_interval in the config
+// file. Slow enough to be inconsequential against GitHub's rate limit, fast
+// enough that a failing check reaches you while you still care.
+const Interval = config.DefaultPollInterval
 
 // Lock is a pidfile ensuring one watcher per machine. The board spawns a
 // watcher whenever it opens, so without this every open would add another.
@@ -98,8 +99,10 @@ func Run(ctx context.Context, stateDir string, interval time.Duration) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	settings := config.Load()
+
 	for {
-		if err := poll(ctx, stateDir); err != nil {
+		if err := poll(ctx, stateDir, settings.Notifications); err != nil {
 			// Herdr has stopped, so there is nothing to watch and nowhere to
 			// deliver a notification. Exiting beats spinning.
 			return err
@@ -164,7 +167,7 @@ func drain(ch <-chan struct{}, window time.Duration) {
 }
 
 // poll does one round: read the board, ask GitHub, notify on what changed.
-func poll(ctx context.Context, stateDir string) error {
+func poll(ctx context.Context, stateDir string, notify bool) error {
 	client, err := herdr.New()
 	if err != nil {
 		return err
@@ -239,8 +242,11 @@ func poll(ctx context.Context, stateDir string) error {
 
 	// Notify after saving: a toast the user never sees is still recorded, but
 	// a recorded alert the user was never told about is the worse failure.
-	for _, a := range raised {
-		_ = client.Notify(a.Title(), a.Text, a.Sound())
+	// With notifications off the bell still appears -- quiet, not blind.
+	if notify {
+		for _, a := range raised {
+			_ = client.Notify(a.Title(), a.Text, a.Sound())
+		}
 	}
 	return nil
 }

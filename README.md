@@ -242,6 +242,36 @@ one in the `S` manager. It is marked there, and it can sit anywhere in the
 order, so rearranging the board never silently changes which status goes quiet.
 A board that has never named one falls back to the first.
 
+## Settings
+
+Everything works without configuration. To change something, Herdr gives the
+plugin its own config directory, which survives reinstalls:
+
+```sh
+herdr-phin-board config --init   # write a commented template
+herdr-phin-board config          # show what is in force, and from where
+```
+
+That lands at `~/.config/herdr/plugins/config/phin-board/config.toml`:
+
+```toml
+# How often the background watcher asks GitHub about your pull requests.
+# Minimum 30s, maximum 1h. Opening or closing a workspace polls immediately
+# regardless, so this only governs noticing a review landing or CI going red.
+poll_interval = "2m"
+
+# Herdr toasts when a pull request changes. Bells on the board are recorded
+# either way, so turning this off makes the board quiet rather than blind.
+notifications = true
+```
+
+A value that is out of range is clamped, and one that makes no sense falls back
+to its default — but either way it says so on stderr rather than ignoring your
+typo. A broken file never stops the board.
+
+This is deliberately separate from `board.json`: that is state the board writes
+for itself, this is what you tell the board, and it is never overwritten.
+
 ## Keys
 
 | Key | |
@@ -296,10 +326,28 @@ Several workspaces open on the same directory share one row, because a status
 belongs to the project rather than the window.
 
 ```sh
-herdr-phin-board sync    # re-apply stored statuses to workspace tokens
-herdr-phin-board watch   # poll PRs and notify (started automatically by the board)
-herdr-phin-board prune   # forget entries whose directory no longer exists
+herdr-phin-board sync            # re-apply stored statuses to workspace tokens
+herdr-phin-board watch           # poll PRs and notify (the board starts this for you)
+herdr-phin-board config          # show the settings in force
+herdr-phin-board config --init   # write a commented settings template
+herdr-phin-board version         # which build this is
+herdr-phin-board prune           # forget entries whose directory no longer exists
 ```
+
+## Releasing
+
+A push to `main` republishes the rolling `latest` prerelease. A `v*` tag cuts a
+permanent one, stamps that version into the binary, and commits the matching
+`version` back to `herdr-plugin.toml` — Herdr reads that file to report what is
+installed, so a stale one would claim the wrong version for ever.
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+CI builds through `build.sh` — the same path `herdr plugin install` takes — and
+fails if the built binary disagrees with the manifest, so the two cannot drift
+apart unnoticed.
 
 ## Development
 
