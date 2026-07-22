@@ -125,3 +125,39 @@ func (c *Client) ReportToken(workspaceID, name string, value *string) error {
 func (c *Client) PopupClose() error {
 	return c.Request("popup.close", map[string]any{}, nil)
 }
+
+// Agent is one agent-bearing pane from `agent list`.
+type Agent struct {
+	// Agent is absent on panes that are not running an agent -- a plain shell,
+	// or a plugin sidebar. Those must never be sent to.
+	Agent       *string `json:"agent"`
+	AgentStatus string  `json:"agent_status"`
+	PaneID      string  `json:"pane_id"`
+	TabID       string  `json:"tab_id"`
+	WorkspaceID string  `json:"workspace_id"`
+}
+
+// Agents lists every pane Herdr considers an agent host.
+func (c *Client) Agents() ([]Agent, error) {
+	var res struct {
+		Agents []Agent `json:"agents"`
+	}
+	if err := c.Request("agent.list", map[string]any{}, &res); err != nil {
+		return nil, err
+	}
+	return res.Agents, nil
+}
+
+// SendToAgent types text into an agent's input without submitting it, so the
+// last word stays with the person: they read it, add to it, and press enter.
+func (c *Client) SendToAgent(paneID, text string) error {
+	return c.Request("agent.send", map[string]any{
+		"target": paneID,
+		"text":   text,
+	}, nil)
+}
+
+// FocusAgent brings an agent's pane to the foreground.
+func (c *Client) FocusAgent(paneID string) error {
+	return c.Request("agent.focus", map[string]any{"target": paneID}, nil)
+}

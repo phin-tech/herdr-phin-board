@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"time"
 
 	"fmt"
@@ -1995,5 +1996,118 @@ func TestChordWorksInTheDetailModal(t *testing.T) {
 	}
 	if m.mode != modeDetail {
 		t.Fatal("opening the PR closed the modal")
+	}
+}
+
+func agent(name, ws, pane string) herdr.Agent {
+	return herdr.Agent{Agent: &name, WorkspaceID: ws, PaneID: pane, TabID: ws + ":t1"}
+}
+
+// A pane with no agent field is a shell or a plugin sidebar -- including this
+// board. Sending to one would type into the wrong window.
+func TestPickAgentIgnoresNonAgentPanes(t *testing.T) {
+	agents := []herdr.Agent{
+		{WorkspaceID: "w1", PaneID: "w1:p2"}, // a plain shell
+		agent("claude", "w1", "w1:p1"),
+	}
+
+	got, err := pickAgent(agents, []string{"w1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PaneID != "w1:p1" {
+		t.Fatalf("picked %q, want the real agent", got.PaneID)
+	}
+}
+
+// Ambiguity is refused, not guessed: typing a review comment into the wrong
+// agent is worse than not sending it.
+func TestPickAgentRefusesAmbiguity(t *testing.T) {
+	agents := []herdr.Agent{
+		agent("claude", "w1", "w1:p1"),
+		agent("codex", "w1", "w1:p3"),
+	}
+
+	if _, err := pickAgent(agents, []string{"w1"}); !errors.Is(err, errSeveralHere) {
+		t.Fatalf("err = %v, want a refusal", err)
+	}
+}
+
+func TestPickAgentRefusesWhenThereIsNone(t *testing.T) {
+	agents := []herdr.Agent{agent("claude", "w2", "w2:p1")}
+
+	if _, err := pickAgent(agents, []string{"w1"}); !errors.Is(err, errNoAgentHere) {
+		t.Fatalf("err = %v, want errNoAgentHere", err)
+	}
+	// An archived space has no workspace at all.
+	if _, err := pickAgent(agents, nil); !errors.Is(err, errAgentUnknown) {
+		t.Fatalf("err = %v, want errAgentUnknown", err)
+	}
+}
+
+// A space merging several workspaces can still resolve, so long as exactly one
+// of them is running an agent.
+func TestPickAgentAcrossMergedWorkspaces(t *testing.T) {
+	agents := []herdr.Agent{
+		{WorkspaceID: "w1", PaneID: "w1:p1"}, // shell only
+		agent("claude", "w2", "w2:p1"),
+	}
+
+	got, err := pickAgent(agents, []string{"w1", "w2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PaneID != "w2:p1" {
+		t.Fatalf("picked %q, want w2:p1", got.PaneID)
+	}
+}
+
+func TestMessageModeOpensAndPrompts(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("m"))
+	if m.mode != modeMessage {
+		t.Fatal("m did not open the message prompt")
+	}
+	// It starts empty rather than seeded, unlike the note editor.
+	if m.input.Value() != "" {
+		t.Fatalf("prompt seeded with %q", m.input.Value())
+	}
+	if out := m.View(); !strings.Contains(out, "to agent:") {
+		t.Fatalf("no agent prompt in the footer:\n%s", out)
+	}
+}
+
+// The message must not be submitted for you -- the point is that you add a
+// line and press enter yourself.
+func TestSendToAgentDoesNotSubmit(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("m"))
+	m.input.SetValue("can you rerun the failing test?")
+	send(t, m, key("enter"))
+
+	if m.mode != modeNormal {
+		t.Fatal("sending left the prompt open")
+	}
+	// Nothing was written to the board: a message is not a note.
+	if got := m.board.Entries["/tmp/api"].Note; got != "" {
+		t.Fatalf("the message leaked into the note: %q", got)
+	}
+}
+
+func TestEmptyMessageSendsNothing(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+	selectSpace(t, m, "/tmp/api")
+
+	send(t, m, key("m"))
+	m.input.SetValue("   ")
+	if _, cmd := m.Update(key("enter")); cmd != nil {
+		t.Fatal("an empty message queued a send")
 	}
 }

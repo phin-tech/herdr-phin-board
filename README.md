@@ -97,10 +97,24 @@ selected space's PR in a browser.
 reorders anything — the same rule the agent hint follows. You drive status; this
 just tells you what GitHub thinks while you decide.
 
+## Talking to a space's agent
+
+`m` types a message into the agent running in the selected space and takes you
+there — **without submitting it**. You read it, add a line, press enter. The
+board is where you notice that something is blocked; this is how you say
+something about it without hunting for the right window.
+
+It refuses rather than guesses. Panes with no agent are skipped (shells, plugin
+sidebars, this board), and a space running two agents is a refusal, not a coin
+flip: typing a review comment into the wrong agent is worse than not sending it.
+
 It reads through the `gh` CLI, so it uses your existing login and needs no
 token. Results are cached beside the board and refreshed when you open it, so
 the board paints instantly and fills in as answers arrive. No `gh`, no repo, no
-PR, or not logged in all look the same: the column simply stays empty.
+No repo and no PR both look the same — an empty column. A **missing or
+logged-out `gh` says so once**, because Herdr launches plugins with a minimal
+PATH: left silent, the whole feature would vanish and look identical to having
+no PRs.
 
 The short form is also pushed as a `$pr` token, if you want it in the sidebar:
 
@@ -198,6 +212,7 @@ A board that has never named one falls back to the first.
 | `s` | status picker |
 | `n` | edit the note — who or what you're waiting on |
 | `R` | rename the space — renames the Herdr workspace too |
+| `m` | type a message into that space's agent, then go there to send it |
 | `space` | collapse / expand a group |
 | `a` | show or hide archived spaces |
 | `/` | filter by name, path, or note |

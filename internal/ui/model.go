@@ -24,6 +24,7 @@ const (
 	modeStatusPick
 	modeNote
 	modeRename
+	modeMessage
 	modeFilter
 	modeManage
 	modeManageAdd
@@ -122,6 +123,8 @@ type Model struct {
 	prCache *gh.Cache
 	// prLoading guards against overlapping fetch rounds.
 	prLoading bool
+	// prProblemSaid keeps a broken gh from repeating itself every refresh.
+	prProblemSaid bool
 
 	live []herdr.Workspace
 	rows []row

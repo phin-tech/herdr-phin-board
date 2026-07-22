@@ -28,6 +28,10 @@ type prLoadedMsg struct {
 	// missing lists directories that were checked and turned out to have no
 	// PR, so a cached one can be dropped rather than lingering.
 	missing []string
+	// problem is a fault affecting every directory rather than one -- gh
+	// missing or logged out. Reported once, because otherwise the whole
+	// feature is silently absent and looks like having no PRs.
+	problem error
 }
 
 // loadPRs refreshes PR state for every space whose cache entry is stale. It
@@ -55,7 +59,7 @@ func (m *Model) loadPRs() tea.Cmd {
 	m.prLoading = true
 	client := m.gh
 	return func() tea.Msg {
-		found := client.FetchAll(context.Background(), dirs)
+		found, problem := client.FetchAll(context.Background(), dirs)
 
 		var missing []string
 		for _, dir := range dirs {
@@ -63,13 +67,24 @@ func (m *Model) loadPRs() tea.Cmd {
 				missing = append(missing, dir)
 			}
 		}
-		return prLoadedMsg{found: found, missing: missing}
+		return prLoadedMsg{found: found, missing: missing, problem: problem}
 	}
 }
 
 // applyPRs folds a fetch result into the cache and pushes the sidebar token.
 func (m *Model) applyPRs(msg prLoadedMsg) tea.Cmd {
 	m.prLoading = false
+
+	// A broken gh is worth saying out loud exactly once. Recording the
+	// absences below would otherwise bake the fault into the cache and the
+	// board would quietly show empty PR columns for half an hour.
+	if msg.problem != nil {
+		if !m.prProblemSaid {
+			m.prProblemSaid = true
+			m.status = msg.problem.Error()
+		}
+		return nil
+	}
 
 	for dir, pr := range msg.found {
 		m.prCache.Put(dir, pr)

@@ -28,6 +28,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case prLoadedMsg:
 		return m, m.applyPRs(msg)
 
+	case agentSentMsg:
+		m.status = "sent to " + msg.label
+		return m, m.focusAgentAndQuit(msg.pane)
+
 	case eventMsg:
 		// Any workspace change invalidates the list; refetch and keep listening.
 		return m, tea.Batch(m.refresh(), waitForEvent(m.events))
@@ -145,7 +149,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleManageKey(msg)
 	case modeDetail:
 		return m.handleDetailKey(msg)
-	case modeNote, modeRename, modeFilter, modeManageAdd, modeManageRename:
+	case modeNote, modeRename, modeMessage, modeFilter, modeManageAdd, modeManageRename:
 		return m.handleInputKey(msg)
 	case modeHelp:
 		m.mode = modeNormal
@@ -281,6 +285,14 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNote
 		m.input.SetValue(sp.Note)
 		m.input.CursorEnd()
+		m.input.Focus()
+
+	case "m":
+		if !m.requireSpace() {
+			return m, nil
+		}
+		m.mode = modeMessage
+		m.input.SetValue("")
 		m.input.Focus()
 
 	case "R":
@@ -495,6 +507,9 @@ func (m *Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		case modeRename:
 			return m, m.renameSelected(value)
+
+		case modeMessage:
+			return m, m.sendToAgent(value)
 		case modeFilter:
 			m.filter = value
 			m.rebuild()

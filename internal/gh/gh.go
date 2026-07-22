@@ -10,8 +10,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -60,14 +62,55 @@ func New() *Client {
 }
 
 func execRunner(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	// Herdr launches plugins with a minimal PATH, so gh may be installed and
+	// still not resolve here. That has to be distinguishable from "no PR".
+	if _, err := exec.LookPath("gh"); err != nil {
+		return nil, ErrUnavailable
+	}
+
 	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = dir
-	return cmd.Output()
+
+	out, err := cmd.Output()
+	if err == nil {
+		return out, nil
+	}
+	// gh puts its reason on stderr; keep it so the caller can classify.
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+		return nil, fmt.Errorf("%s", strings.TrimSpace(string(exit.Stderr)))
+	}
+	return nil, err
 }
 
-// ErrNoPR means the directory has no pull request for its current branch --
-// including the common cases of not being a repo at all, or having no remote.
-var ErrNoPR = errors.New("no pull request for this directory")
+var (
+	// ErrNoPR means the directory has no pull request for its current branch --
+	// including not being a repo at all, or having no remote.
+	ErrNoPR = errors.New("no pull request for this directory")
+	// ErrUnavailable means gh is not on PATH. Left indistinguishable from
+	// ErrNoPR this would silently disable the whole feature: every column
+	// would simply be empty, which looks exactly like having no PRs.
+	ErrUnavailable = errors.New("gh was not found on PATH")
+	// ErrAuth means gh is installed but not logged in.
+	ErrAuth = errors.New("gh is not logged in — run: gh auth login")
+)
+
+// classify turns a gh failure into something worth telling the user about, or
+// ErrNoPR when it is just an ordinary absence.
+func classify(err error) error {
+	if errors.Is(err, ErrUnavailable) {
+		return ErrUnavailable
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "not logged in"),
+		strings.Contains(msg, "authentication"),
+		strings.Contains(msg, "gh auth login"):
+		return ErrAuth
+	default:
+		return ErrNoPR
+	}
+}
 
 // rawPR mirrors the gh JSON shape.
 type rawPR struct {
@@ -94,9 +137,10 @@ func (c *Client) Fetch(ctx context.Context, dir string) (PR, error) {
 
 	out, err := c.Run(ctx, dir, "pr", "view", "--json", prFields)
 	if err != nil {
-		// gh exits non-zero for "no PR", "not a repo", "no remote" and "not
-		// logged in" alike. None of them are worth surfacing per row.
-		return PR{}, ErrNoPR
+		// gh exits non-zero for "no PR", "not a repo" and "no remote" alike;
+		// those are ordinary absences. A missing or unauthenticated gh is not,
+		// because it silently disables the feature everywhere.
+		return PR{}, classify(err)
 	}
 
 	var raw rawPR
@@ -147,8 +191,9 @@ func rollup(raw rawPR) Checks {
 }
 
 // FetchAll reads PRs for many directories concurrently, returning only those
-// that have one.
-func (c *Client) FetchAll(ctx context.Context, dirs []string) map[string]PR {
+// that have one, plus any problem that applies to every directory rather than
+// to one -- gh missing or logged out.
+func (c *Client) FetchAll(ctx context.Context, dirs []string) (map[string]PR, error) {
 	sort.Strings(dirs)
 
 	workers := c.Workers
@@ -157,9 +202,10 @@ func (c *Client) FetchAll(ctx context.Context, dirs []string) map[string]PR {
 	}
 
 	var (
-		mu  sync.Mutex
-		out = map[string]PR{}
-		wg  sync.WaitGroup
+		mu      sync.Mutex
+		out     = map[string]PR{}
+		problem error
+		wg      sync.WaitGroup
 	)
 	sem := make(chan struct{}, workers)
 
@@ -175,14 +221,17 @@ func (c *Client) FetchAll(ctx context.Context, dirs []string) map[string]PR {
 			}
 
 			pr, err := c.Fetch(ctx, dir)
+			mu.Lock()
+			defer mu.Unlock()
 			if err != nil {
+				if !errors.Is(err, ErrNoPR) && problem == nil {
+					problem = err
+				}
 				return
 			}
-			mu.Lock()
 			out[dir] = pr
-			mu.Unlock()
 		}(dir)
 	}
 	wg.Wait()
-	return out
+	return out, problem
 }

@@ -134,7 +134,10 @@ func TestRollupPrefersFailureOverPending(t *testing.T) {
 func TestFetchAllSkipsDirsWithoutPRs(t *testing.T) {
 	c := fakeClient(map[string]string{"/tmp/withpr": openPR})
 
-	got := c.FetchAll(context.Background(), []string{"/tmp/withpr", "/tmp/nopr", "/tmp/other"})
+	got, problem := c.FetchAll(context.Background(), []string{"/tmp/withpr", "/tmp/nopr", "/tmp/other"})
+	if problem != nil {
+		t.Fatalf("ordinary absences were reported as a problem: %v", problem)
+	}
 	if len(got) != 1 {
 		t.Fatalf("got %d results, want 1: %+v", len(got), got)
 	}
@@ -153,7 +156,7 @@ func TestFetchAllIsConcurrencySafe(t *testing.T) {
 	c := fakeClient(responses)
 	c.Workers = 3
 
-	got := c.FetchAll(context.Background(), dirs)
+	got, _ := c.FetchAll(context.Background(), dirs)
 	if len(got) != len(dirs) {
 		t.Fatalf("got %d results, want %d", len(got), len(dirs))
 	}
@@ -213,5 +216,58 @@ func TestSkippedAndNeutralAreNotFailures(t *testing.T) {
 	}
 	if pr.Checks != ChecksPass {
 		t.Fatalf("checks = %q, want pass", pr.Checks)
+	}
+}
+
+// A missing or logged-out gh must be distinguishable from an ordinary absence.
+// Collapsed together, the whole feature would disappear silently: every column
+// empty, which looks exactly like having no PRs.
+func TestGlobalFaultsAreDistinguishedFromNoPR(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want error
+	}{
+		{"gh missing", ErrUnavailable, ErrUnavailable},
+		{"logged out", errors.New("gh: To get started with GitHub CLI, please run: gh auth login"), ErrAuth},
+		{"auth wording", errors.New("authentication required"), ErrAuth},
+		{"ordinary absence", errors.New(`no pull requests found for branch "main"`), ErrNoPR},
+		{"not a repo", errors.New("not a git repository"), ErrNoPR},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &Client{
+				Workers: 1,
+				Timeout: time.Second,
+				Run: func(context.Context, string, ...string) ([]byte, error) {
+					return nil, tc.err
+				},
+			}
+			_, err := c.Fetch(context.Background(), "/tmp/repo")
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+// One broken gh must surface from FetchAll rather than being lost among the
+// per-directory results.
+func TestFetchAllReportsAGlobalFault(t *testing.T) {
+	c := &Client{
+		Workers: 2,
+		Timeout: time.Second,
+		Run: func(context.Context, string, ...string) ([]byte, error) {
+			return nil, ErrUnavailable
+		},
+	}
+
+	got, problem := c.FetchAll(context.Background(), []string{"/a", "/b"})
+	if len(got) != 0 {
+		t.Fatalf("got results from a broken gh: %+v", got)
+	}
+	if !errors.Is(problem, ErrUnavailable) {
+		t.Fatalf("problem = %v, want ErrUnavailable", problem)
 	}
 }
