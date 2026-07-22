@@ -31,6 +31,42 @@ func main() {
 }
 
 func run(args []string) error {
+	// Commands that need nothing from Herdr are answered first. Asking for a
+	// socket before dispatching would make `version` and `config` fail outside
+	// a session, where they are most likely to be asked.
+	if len(args) > 0 {
+		switch args[0] {
+		case "config":
+			return showConfig(args[1:])
+
+		case "version", "--version", "-v":
+			fmt.Println(version.Version)
+			return nil
+
+		case "watch":
+			// The poller builds its own client, and holds a lock so that only
+			// one runs however many boards are opened.
+			dir, err := stateDir()
+			if err != nil {
+				return err
+			}
+			return watch.Run(context.Background(), dir, config.Load().PollInterval)
+
+		case "prune":
+			board, err := store.Load()
+			if err != nil {
+				return err
+			}
+			n := board.Prune()
+			if err := board.Save(); err != nil {
+				return err
+			}
+			fmt.Printf("pruned %d entries for directories that no longer exist\n", n)
+			return nil
+		}
+	}
+
+	// Everything below talks to Herdr.
 	client, err := herdr.New()
 	if err != nil {
 		return err
@@ -44,29 +80,6 @@ func run(args []string) error {
 		switch args[0] {
 		case "sync":
 			return sync(client, board)
-		case "watch":
-			// The background poller. Started detached by the board, or run by
-			// hand; the lock inside keeps there being only one.
-			dir, err := stateDir()
-			if err != nil {
-				return err
-			}
-			return watch.Run(context.Background(), dir, config.Load().PollInterval)
-
-		case "config":
-			return showConfig(args[1:])
-
-		case "version", "--version", "-v":
-			fmt.Println(version.Version)
-			return nil
-
-		case "prune":
-			n := board.Prune()
-			if err := board.Save(); err != nil {
-				return err
-			}
-			fmt.Printf("pruned %d entries for directories that no longer exist\n", n)
-			return nil
 		default:
 			return fmt.Errorf("unknown command %q (want: sync, watch, config, version, prune)", args[0])
 		}
