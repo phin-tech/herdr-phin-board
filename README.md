@@ -111,15 +111,19 @@ It refuses rather than guesses. Panes with no agent are skipped (shells, plugin
 sidebars, this board), and a space running two agents is a refusal, not a coin
 flip: typing a review comment into the wrong agent is worse than not sending it.
 
-The PR is found by the space's branch, or by a URL an agent printed: the board
+## How pull requests are found
+
+The PR comes from the space's branch, or from a URL an agent printed: the board
 reads recent pane output for a `…/pull/N` link, which catches a pull request the
-moment it is announced and reaches ones a branch lookup cannot. It reads through
-the `gh` CLI, so it uses your existing login and needs no token. Results are cached beside the board and refreshed when you open it, so
-the board paints instantly and fills in as answers arrive. No `gh`, no repo, no
-No repo and no PR both look the same — an empty column. A **missing or
-logged-out `gh` says so once**, because Herdr launches plugins with a minimal
-PATH: left silent, the whole feature would vanish and look identical to having
-no PRs.
+moment it is announced and reaches ones a branch lookup cannot.
+
+It reads through the `gh` CLI, so it uses your existing login and needs no
+token. Results are cached beside the board and refreshed when you open it, so
+the board paints instantly and fills in as answers arrive.
+
+No repo and no PR look the same — an empty column. A **missing or logged-out
+`gh` says so once**, because Herdr launches plugins with a minimal PATH: left
+silent, the whole feature would vanish and look identical to having no PRs.
 
 The short form is also pushed as a `$pr` token, if you want it in the sidebar:
 
