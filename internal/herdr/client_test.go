@@ -279,24 +279,6 @@ func TestNotifyOmitsEmptyFields(t *testing.T) {
 	}
 }
 
-func TestReadPaneAcceptsEitherField(t *testing.T) {
-	for _, field := range []string{"content", "text"} {
-		t.Run(field, func(t *testing.T) {
-			f := herdrtest.Start(t)
-			f.OK(map[string]any{field: "line one\nline two"})
-
-			c, _ := New()
-			got, err := c.ReadPane("w1:p1", 100)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(got, "line two") {
-				t.Fatalf("read %q", got)
-			}
-		})
-	}
-}
-
 func TestRenameAndCreateWorkspace(t *testing.T) {
 	f := herdrtest.Start(t)
 	f.Handle(func(req herdrtest.Request) any {

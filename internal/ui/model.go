@@ -130,8 +130,23 @@ type Model struct {
 	stateDir string
 	// prLoading guards against overlapping fetch rounds.
 	prLoading bool
+	// branchLoading is the same guard for worktree lookups, which cost Herdr a
+	// git subprocess per repository rather than costing us a gh call.
+	branchLoading bool
+	// branchesAt is when the last full branch scan finished. Herdr says nothing
+	// when someone checks out, so a timer is the only thing that notices.
+	branchesAt time.Time
 	// prProblemSaid keeps a broken gh from repeating itself every refresh.
 	prProblemSaid bool
+	// seen is every directory the board has already worked up: fetched a PR
+	// for, resolved a branch for, pushed tokens for. A workspace event that
+	// adds nothing to this set is an event that needs no round trips at all.
+	seen map[string]bool
+	// woken records that the first workspace list has arrived.
+	woken bool
+	// sent records the last value pushed for each workspace token, so a resync
+	// sends only what changed.
+	sent map[tokenID]string
 
 	live []herdr.Workspace
 	rows []row
@@ -209,6 +224,8 @@ func New(client *herdr.Client, board *store.Board) *Model {
 		prCache:  cache,
 		alerts:   alert.Load(stateDir),
 		branches: map[string]string{},
+		seen:     map[string]bool{},
+		sent:     map[tokenID]string{},
 		stateDir: stateDir,
 		input:    in,
 		layout:   parseLayout(board.Layout),
@@ -226,7 +243,19 @@ type errMsg struct{ err error }
 type statusMsg string
 type eventMsg struct{}
 type eventsDoneMsg struct{}
-type tokensSyncedMsg struct{}
+type tickMsg struct{}
+
+// refreshEvery is how often the board looks for work of its own. The check
+// itself is in-memory and costs nothing; what it guards -- a gh round, a
+// worktree scan -- is what has to stay rare.
+const refreshEvery = time.Minute
+
+// branchTTL bounds how stale a branch may be.
+const branchTTL = 5 * time.Minute
+
+func tick() tea.Cmd {
+	return tea.Tick(refreshEvery, func(time.Time) tea.Msg { return tickMsg{} })
+}
 
 func (m *Model) Init() tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -236,6 +265,7 @@ func (m *Model) Init() tea.Cmd {
 		m.refresh(),
 		m.subscribe(ctx),
 		waitForEvent(m.events),
+		tick(),
 	)
 }
 
@@ -247,6 +277,50 @@ func (m *Model) refresh() tea.Cmd {
 		}
 		return workspacesMsg(ws)
 	}
+}
+
+// spacesChanged decides what a fresh workspace list is actually worth asking
+// about.
+//
+// An event says the workspace list may have changed, and nothing more. PR state
+// ages on its own clock, a branch changes when somebody checks one out -- which
+// Herdr does not report at all -- and statuses are the board's own. None of
+// those are what an event witnesses, so none of them are refetched here.
+//
+// What does warrant work is a directory the board has never seen: it has no PR,
+// no branch and no tokens, and each of those is worth its round trips once.
+// Herdr emits workspace.updated on every agent status tick, so this is the
+// difference between a board that idles while it is open and one that keeps
+// Herdr's socket -- and the thread behind it -- busy the whole time.
+func (m *Model) spacesChanged() tea.Cmd {
+	// The first list is always worth working up, live spaces or not: a board
+	// that is all archive still has PRs worth reading.
+	fresh := !m.woken
+	m.woken = true
+
+	liveIDs := map[string]bool{}
+	for _, ws := range m.live {
+		liveIDs[ws.ID] = true
+		key := store.Key(ws.Cwd)
+		if key == "" {
+			continue
+		}
+		if !m.seen[key] {
+			m.seen[key] = true
+			fresh = true
+		}
+	}
+	// A workspace that has gone takes its token record with it, so the same id
+	// coming back is told again rather than assumed current.
+	m.forgetTokens(liveIDs)
+
+	// Diffed, so this is free unless something is genuinely unpushed: a new
+	// workspace, or one whose token Herdr lost.
+	cmds := []tea.Cmd{m.syncTokens()}
+	if fresh {
+		cmds = append(cmds, m.loadPRs(), m.loadBranches())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) subscribe(ctx context.Context) tea.Cmd {
@@ -270,14 +344,7 @@ func waitForEvent(ch chan herdr.Event) tea.Cmd {
 // syncTokens pushes each space's status into Herdr's workspace metadata, which
 // is what makes the status visible in Herdr's own Space rows.
 func (m *Model) syncTokens() tea.Cmd {
-	type push struct {
-		workspaceID string
-		// value is nil for the default status, which clears the token: every
-		// untouched space sits there, so a badge for it would be noise on
-		// every row and would not distinguish filed from untouched.
-		value *string
-	}
-	var pushes []push
+	var pushes []tokenPush
 	for _, group := range m.groups {
 		for _, sp := range group {
 			if !sp.Live {
@@ -287,23 +354,19 @@ func (m *Model) syncTokens() tea.Cmd {
 			if !ok {
 				continue
 			}
-			var value *string
+			// The default status clears the token: every untouched space sits
+			// there, so a badge for it would be noise on every row and would
+			// not distinguish filed from untouched.
+			value := tokenCleared
 			if st.ID != m.board.DefaultStatusID() {
-				label := st.Label
-				value = &label
+				value = st.Label
 			}
 			for _, id := range sp.WorkspaceIDs {
-				pushes = append(pushes, push{id, value})
+				pushes = append(pushes, tokenPush{tokenID{id, "status"}, value})
 			}
 		}
 	}
-	client := m.client
-	return func() tea.Msg {
-		for _, p := range pushes {
-			_ = client.ReportToken(p.workspaceID, "status", p.value)
-		}
-		return tokensSyncedMsg{}
-	}
+	return m.pushTokens(pushes)
 }
 
 // --- rebuild ---

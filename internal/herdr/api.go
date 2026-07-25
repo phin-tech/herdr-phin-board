@@ -176,31 +176,6 @@ func (c *Client) FocusAgent(paneID string) error {
 	return c.Request("agent.focus", map[string]any{"target": paneID}, nil)
 }
 
-// ReadPane returns recent output from a pane. Used to find a pull request URL
-// an agent printed, which reaches PRs a branch lookup cannot: a PR opened from
-// a branch that has since moved on, or one raised in a directory the board
-// resolves differently.
-func (c *Client) ReadPane(paneID string, lines int) (string, error) {
-	var res struct {
-		Content string `json:"content"`
-		Text    string `json:"text"`
-	}
-	err := c.Request("pane.read", map[string]any{
-		"pane_id":    paneID,
-		"source":     "recent",
-		"lines":      lines,
-		"format":     "text",
-		"strip_ansi": true,
-	}, &res)
-	if err != nil {
-		return "", err
-	}
-	if res.Content != "" {
-		return res.Content, nil
-	}
-	return res.Text, nil
-}
-
 // Notify raises a Herdr notification. Whether it lands as an in-app toast or a
 // system notification is the user's choice, via [ui.toast] delivery.
 func (c *Client) Notify(title, body, sound string) error {

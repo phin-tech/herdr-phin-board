@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/phin-tech/herdr-phin-board/internal/herdr"
@@ -13,30 +15,47 @@ import (
 // A worktree per branch is the workflow this board suits best, and until now
 // the branch was visible in Herdr's own sidebar but not here.
 
-type branchesMsg map[string]string
+type branchesMsg struct {
+	branches map[string]string
+	// full is set when the round covered every live space, which is what
+	// advances the rescan clock. A round that only resolved a newly opened
+	// space says nothing about how stale the rest have become.
+	full bool
+}
 
-// loadBranches resolves a branch for every space.
+// loadBranches resolves a branch for every space that needs one.
 //
 // worktree.list answers for a whole repository, so directories that share one
 // are resolved together and asked about once. A space that is not a git
 // checkout simply has no branch, which is not worth reporting.
+//
+// Herdr runs a git subprocess per repository to answer this, so it is asked
+// about spaces whose branch is unknown, and otherwise only once a branchTTL --
+// not on every workspace event, which is what a checkout does not raise anyway.
 func (m *Model) loadBranches() tea.Cmd {
-	if m.client == nil {
+	if m.client == nil || m.branchLoading {
 		return nil
 	}
+
+	full := time.Since(m.branchesAt) > branchTTL
 
 	var dirs []string
 	for _, group := range m.groups {
 		for _, sp := range group {
-			if sp.Live {
-				dirs = append(dirs, sp.Key)
+			if !sp.Live {
+				continue
 			}
+			if _, known := m.branches[sp.Key]; known && !full {
+				continue
+			}
+			dirs = append(dirs, sp.Key)
 		}
 	}
 	if len(dirs) == 0 {
 		return nil
 	}
 
+	m.branchLoading = true
 	client := m.client
 	return func() tea.Msg {
 		out := map[string]string{}
@@ -59,7 +78,7 @@ func (m *Model) loadBranches() tea.Cmd {
 				out[dir] = ""
 			}
 		}
-		return branchesMsg(out)
+		return branchesMsg{branches: out, full: full}
 	}
 }
 

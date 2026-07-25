@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -22,16 +23,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.reloadAlerts()
 		m.rebuild()
-		// The space list is what defines which directories to ask GitHub
-		// about, so PR loading is kicked off from here rather than Init.
-		return m, tea.Batch(m.syncTokens(), m.loadPRs(), m.loadBranches())
+		// The space list is what defines which directories to ask GitHub and
+		// Herdr about, so the lookups are kicked off from here rather than
+		// Init -- but only for what the new list actually changed.
+		return m, m.spacesChanged()
 
 	case branchesMsg:
-		for k, v := range msg {
+		m.branchLoading = false
+		for k, v := range msg.branches {
 			m.branches[k] = v
+		}
+		if msg.full {
+			m.branchesAt = time.Now()
 		}
 		m.rebuild()
 		return m, nil
+
+	case tickMsg:
+		// The board's own clock: PR entries age out of the cache, and branches
+		// go stale silently because a checkout raises no Herdr event. Both
+		// calls are no-ops until something is genuinely due.
+		return m, tea.Batch(m.loadPRs(), m.loadBranches(), tick())
 
 	case prLoadedMsg:
 		return m, m.applyPRs(msg)
@@ -52,6 +64,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tokensSyncedMsg:
+		m.recordTokens(msg.sent)
 		return m, nil
 
 	case errMsg:
@@ -355,7 +368,10 @@ func (m *Model) handleNormalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.forgetSelected()
 
 	case "r":
-		return m, m.refresh()
+		// An explicit refresh means all of it, TTLs included: the user has just
+		// watched CI go green, or moved a branch, and wants the board to agree.
+		m.branchesAt = time.Time{}
+		return m, tea.Batch(m.refresh(), m.loadPRsNow(), m.loadBranches())
 
 	case "?":
 		m.mode = modeHelp
@@ -698,11 +714,7 @@ func (m *Model) forgetSelected() (tea.Model, tea.Cmd) {
 
 	var cmd tea.Cmd
 	if id := sp.workspaceID(); id != "" {
-		client := m.client
-		cmd = func() tea.Msg {
-			_ = client.ReportToken(id, "status", nil)
-			return tokensSyncedMsg{}
-		}
+		cmd = m.pushTokens([]tokenPush{{tokenID{id, "status"}, tokenCleared}})
 	}
 	m.status = fmt.Sprintf("forgot %s", sp.Label)
 	m.rebuild()

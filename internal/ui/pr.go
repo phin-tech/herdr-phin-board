@@ -3,20 +3,23 @@ package ui
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/phin-tech/herdr-phin-board/internal/gh"
-	"github.com/phin-tech/herdr-phin-board/internal/herdr"
-	"github.com/phin-tech/herdr-phin-board/internal/store"
 )
 
 // PR state is context, never control: it is rendered beside a space and pushed
 // to the sidebar, but it never sets a status, reorders a row, or moves anything
 // between groups. The user drives status.
+//
+// A PR is found by the space's branch, and thereafter by its own URL. Reading
+// agent output for a URL it had just announced was the earlier route -- it
+// reached PRs a branch lookup could not -- but pane.read is by far the most
+// expensive thing the board can ask of Herdr, and asking it per pane per space
+// is what stalled a large session. The branch is enough.
 
 var (
 	prPassStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("78"))
@@ -39,7 +42,12 @@ type prLoadedMsg struct {
 
 // loadPRs refreshes PR state for every space whose cache entry is stale. It
 // runs off the UI thread; the board paints cached values meanwhile.
-func (m *Model) loadPRs() tea.Cmd {
+func (m *Model) loadPRs() tea.Cmd { return m.fetchPRs(false) }
+
+// loadPRsNow ignores the TTL. This is what an explicit refresh means.
+func (m *Model) loadPRsNow() tea.Cmd { return m.fetchPRs(true) }
+
+func (m *Model) fetchPRs(force bool) tea.Cmd {
 	if m.gh == nil || m.prLoading {
 		// A fetch is already running. Herdr emits workspace events freely, and
 		// each one refreshes the board, so without this guard a busy session
@@ -47,18 +55,10 @@ func (m *Model) loadPRs() tea.Cmd {
 		return nil
 	}
 
-	// Each stale space is looked up by directory, and the panes open on it are
-	// carried along so an agent's own output can be searched for a PR URL.
-	panes := map[string][]string{}
-	for _, ws := range m.live {
-		key := store.Key(ws.Cwd)
-		panes[key] = append(panes[key], ws.PaneIDs...)
-	}
-
 	var dirs []string
 	for _, group := range m.groups {
 		for _, sp := range group {
-			if m.prCache.Stale(sp.Key) {
+			if force || m.prCache.Stale(sp.Key) {
 				dirs = append(dirs, sp.Key)
 			}
 		}
@@ -67,15 +67,25 @@ func (m *Model) loadPRs() tea.Cmd {
 		return nil
 	}
 
+	// A PR already known is looked up by its URL rather than by the branch,
+	// which reaches it even after the branch has moved on.
+	//
+	// A merged or closed PR deliberately falls back to the branch lookup: the
+	// URL would otherwise pin the row to a finished PR forever, and never find
+	// the one that replaced it.
+	known := map[string]string{}
+	for _, dir := range dirs {
+		if pr, ok := m.prCache.Entries[dir]; ok && pr.Found() && pr.State == "OPEN" {
+			known[dir] = pr.URL
+		}
+	}
+
 	m.prLoading = true
-	ghClient, herdrClient := m.gh, m.client
+	ghClient := m.gh
 	return func() tea.Msg {
 		targets := make([]gh.Target, 0, len(dirs))
 		for _, dir := range dirs {
-			targets = append(targets, gh.Target{
-				Dir: dir,
-				URL: scrapePRURL(herdrClient, panes[dir]),
-			})
+			targets = append(targets, gh.Target{Dir: dir, URL: known[dir]})
 		}
 
 		found, problem := ghClient.FetchAll(context.Background(), targets)
@@ -89,37 +99,6 @@ func (m *Model) loadPRs() tea.Cmd {
 		return prLoadedMsg{found: found, missing: missing, problem: problem}
 	}
 }
-
-// prURLPattern matches a pull request URL an agent printed, on any GitHub host.
-var prURLPattern = regexp.MustCompile(`https://[^\s"'<>]+/pull/\d+`)
-
-// scrapePRURL looks through a space's panes for the most recent pull request
-// URL. Borrowed from Matovidlo/herdr-pr-tracker: an agent announces the PR it
-// just opened, which finds it before any branch lookup could.
-//
-// It is a hint, not an answer -- gh still resolves the URL, so a stale or
-// mistyped one simply falls back to nothing.
-func scrapePRURL(client *herdr.Client, paneIDs []string) string {
-	if client == nil {
-		return ""
-	}
-	for _, id := range paneIDs {
-		text, err := client.ReadPane(id, prScrapeLines)
-		if err != nil {
-			continue
-		}
-		if matches := prURLPattern.FindAllString(text, -1); len(matches) > 0 {
-			// The last one wins: an agent that opened two PRs in a session
-			// most recently announced the one you care about.
-			return matches[len(matches)-1]
-		}
-	}
-	return ""
-}
-
-// prScrapeLines bounds how far back to look. Deep enough to survive a chatty
-// agent, shallow enough that reading several panes stays cheap.
-const prScrapeLines = 2000
 
 // applyPRs folds a fetch result into the cache and pushes the sidebar token.
 func (m *Model) applyPRs(msg prLoadedMsg) tea.Cmd {
@@ -174,38 +153,22 @@ func (m *Model) prFor(key string) (gh.PR, bool) {
 // syncPRTokens mirrors PR state into a $pr sidebar token. The sidebar is
 // narrow, so this is the terse form.
 func (m *Model) syncPRTokens() tea.Cmd {
-	type push struct {
-		workspaceID string
-		value       *string
-	}
-	var pushes []push
-
+	var pushes []tokenPush
 	for _, group := range m.groups {
 		for _, sp := range group {
 			if !sp.Live {
 				continue
 			}
-			var value *string
+			value := tokenCleared
 			if pr, ok := m.prFor(sp.Key); ok {
-				text := prShort(pr)
-				value = &text
+				value = prShort(pr)
 			}
 			for _, id := range sp.WorkspaceIDs {
-				pushes = append(pushes, push{id, value})
+				pushes = append(pushes, tokenPush{tokenID{id, "pr"}, value})
 			}
 		}
 	}
-
-	client := m.client
-	if client == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		for _, p := range pushes {
-			_ = client.ReportToken(p.workspaceID, "pr", p.value)
-		}
-		return tokensSyncedMsg{}
-	}
+	return m.pushTokens(pushes)
 }
 
 // prStateSymbol distinguishes draft, open, merged and closed at a glance.

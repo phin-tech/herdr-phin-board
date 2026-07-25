@@ -115,13 +115,20 @@ flip: typing a review comment into the wrong agent is worse than not sending it.
 
 ## How pull requests are found
 
-The PR comes from the space's branch, or from a URL an agent printed: the board
-reads recent pane output for a `…/pull/N` link, which catches a pull request the
-moment it is announced and reaches ones a branch lookup cannot.
+The PR comes from the space's branch, and once found, from its own URL — which
+still reaches it after the branch has moved on. A merged or closed one goes back
+to the branch, so the row finds whatever replaced it.
 
 It reads through the `gh` CLI, so it uses your existing login and needs no
 token. Results are cached beside the board and refreshed when you open it, so
 the board paints instantly and fills in as answers arrive.
+
+Nothing is refetched on Herdr's event stream: an event says the workspace list
+may have changed, which is no reason to re-ask GitHub, re-read a worktree, or
+re-push a token Herdr already has. A space that has just opened is worked up at
+once; everything else ages out on its own clock, or on `r`. On a session of
+thirty spaces with agents running, that is the difference between a board that
+idles and one that keeps Herdr busy for as long as it is open.
 
 No repo and no PR look the same — an empty column. A **missing or logged-out
 `gh` says so once**, because Herdr launches plugins with a minimal PATH: left
