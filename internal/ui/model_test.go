@@ -2471,3 +2471,52 @@ func TestBranchIsPerSpace(t *testing.T) {
 		t.Fatalf("web borrowed a branch: %q", m.branchFor("/tmp/web"))
 	}
 }
+
+func newTestSidebarModel(t *testing.T) *Model {
+	t.Helper()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", t.TempDir())
+	m := NewSidebar(nil, loadTestBoard(t))
+	// Roughly what a docked region gets: narrow, full height.
+	m.width, m.height = 40, 30
+	return m
+}
+
+// A dock is too narrow for the table and kanban arrangements, and switching
+// would also overwrite the layout the popup remembers.
+func TestSidebarStaysOnTheGroupedList(t *testing.T) {
+	m := newTestSidebarModel(t)
+	if m.layout != layoutList {
+		t.Fatalf("sidebar should start on the grouped list, got %v", m.layout)
+	}
+
+	m.toggleLayout()
+
+	if m.layout != layoutList {
+		t.Fatalf("sidebar layout should not cycle, got %v", m.layout)
+	}
+	if m.board.Layout == layoutTable.String() || m.board.Layout == layoutKanban.String() {
+		t.Fatalf("sidebar must not overwrite the popup's remembered layout, got %q", m.board.Layout)
+	}
+}
+
+// The detail pane earns its width beside a wide popup; in a dock it would
+// leave no room for the rows it sits next to.
+func TestSidebarHidesTheDetailPane(t *testing.T) {
+	m := newTestSidebarModel(t)
+	if w := m.detailPaneWidth(); w != 0 {
+		t.Fatalf("sidebar should have no detail pane, got width %d", w)
+	}
+}
+
+// The popup keeps every arrangement it always had.
+func TestPopupModelIsUnaffectedBySidebarMode(t *testing.T) {
+	m := newTestModel(t)
+	if m.sidebar {
+		t.Fatal("the popup model must not be in sidebar mode")
+	}
+	before := m.layout
+	m.toggleLayout()
+	if m.layout == before {
+		t.Fatal("the popup should still cycle layouts")
+	}
+}

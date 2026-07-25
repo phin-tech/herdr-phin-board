@@ -247,6 +247,43 @@ lose by accident.
 Requires Herdr 0.7.5+. Go is optional: without it the install falls back to a
 prebuilt macOS or Linux binary.
 
+## Docked mode (hoarder)
+
+[hoarder](https://github.com/phin-tech/herdr) — a fork of Herdr — can dock a
+plugin pane to the right edge of the window as a persistent, resizable region
+alongside your tiled panes. The board ships a second entrypoint for it:
+
+```sh
+hoarder dock phin-board sidebar
+```
+
+That renders the grouped list only, with no detail pane and no layout
+switching — a dock is too narrow for the table and kanban arrangements, and
+switching there would overwrite the layout the popup remembers. The popup
+entrypoint is unchanged:
+
+```sh
+herdr plugin pane open --plugin phin-board --entrypoint phin-board
+```
+
+### Why it is a separate entrypoint
+
+The docked pane is declared under `[[hoarder.panes]]` rather than `[[panes]]`:
+
+```toml
+[[hoarder.panes]]
+id = "sidebar"
+title = "Board"
+placement = "sidebar-right"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sidebar']
+```
+
+Upstream Herdr rejects a placement it does not know, and it fails the *entire*
+manifest when it does — every action and hook would go down with it. It does
+silently ignore unknown manifest keys, so everything under `[hoarder]` is
+invisible to it: on upstream Herdr this plugin has exactly the panes it always
+had, and on hoarder it gains the docked one. One manifest, both runtimes.
+
 ## Status in the Spaces sidebar
 
 The board mirrors each status into the workspace's `status` metadata token, so

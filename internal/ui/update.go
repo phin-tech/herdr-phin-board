@@ -750,6 +750,11 @@ func (m *Model) toggleCurrentGroup() (tea.Model, tea.Cmd) {
 // toggleLayout cycles list -> table -> kanban, keeping the same space selected
 // and remembering the choice for next time.
 func (m *Model) toggleLayout() {
+	// A dock is too narrow for the table and kanban arrangements, and
+	// switching would also overwrite the layout the popup remembers.
+	if m.sidebar {
+		return
+	}
 	m.setLayout(m.layout.next())
 }
 

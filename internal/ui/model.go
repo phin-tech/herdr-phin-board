@@ -201,9 +201,24 @@ type Model struct {
 	events   chan herdr.Event
 	cancel   context.CancelFunc
 	quitting bool
+	// sidebar renders for a narrow docked region: grouped list, no detail
+	// pane, and no layout switching. Set by the `sidebar` entrypoint.
+	sidebar bool
 }
 
 // New builds the initial model.
+// NewSidebar builds a board for a narrow docked region: the grouped list
+// only, with no detail pane. Used by the `sidebar` entrypoint, which hoarder
+// opens with --placement sidebar-right.
+func NewSidebar(client *herdr.Client, board *store.Board) *Model {
+	m := New(client, board)
+	m.sidebar = true
+	// The saved layout is whatever the user last chose in the popup; a dock
+	// is too narrow for the table or kanban arrangements.
+	m.layout = layoutList
+	return m
+}
+
 func New(client *herdr.Client, board *store.Board) *Model {
 	in := textinput.New()
 	in.Prompt = ""

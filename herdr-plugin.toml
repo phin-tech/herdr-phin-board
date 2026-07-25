@@ -25,6 +25,18 @@ height = "85%"
 # has to be named absolutely via the injected plugin root.
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board"']
 
+# A narrow rendering for a docked region: the grouped list only, no detail
+# pane. Declared under [hoarder] because upstream Herdr rejects a manifest
+# naming a placement it does not know -- a plain [[panes]] entry with
+# placement = "sidebar-right" fails the whole manifest to parse there, taking
+# every action and hook with it. Upstream ignores unknown keys, so it simply
+# never sees this pane.
+[[hoarder.panes]]
+id = "sidebar"
+title = "Board"
+placement = "sidebar-right"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sidebar']
+
 # Runs once after the server restores a session, and again after a live
 # handoff. Reapplies the $status badges, which do not survive a restart, and
 # starts the background watcher -- so pull request notifications arrive whether

@@ -83,12 +83,21 @@ func run(args []string) error {
 		return err
 	}
 
+	sidebar := false
 	if len(args) > 0 {
 		switch args[0] {
 		case "sync":
 			return sync(client, board)
+		case "sidebar":
+			// Narrow docked rendering. Declared as its own pane entrypoint
+			// rather than sniffed from the environment, because the manifest
+			// cannot name a placement upstream Herdr does not know: a
+			// `placement = "sidebar-right"` entry fails the whole manifest to
+			// parse there, taking every action and hook with it. The caller
+			// supplies the placement at open time instead.
+			sidebar = true
 		default:
-			return fmt.Errorf("unknown command %q (want: sync, watch, startup, config, version, prune)", args[0])
+			return fmt.Errorf("unknown command %q (want: sync, sidebar, watch, startup, config, version, prune)", args[0])
 		}
 	}
 
@@ -100,7 +109,11 @@ func run(args []string) error {
 	// Mouse reporting drives the view switcher in the title bar. It also takes
 	// over drag-to-select inside the popup; most terminals still allow it with
 	// shift held.
-	prog := tea.NewProgram(ui.New(client, board), tea.WithAltScreen(), tea.WithMouseCellMotion())
+	model := ui.New(client, board)
+	if sidebar {
+		model = ui.NewSidebar(client, board)
+	}
+	prog := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err = prog.Run()
 	return err
 }

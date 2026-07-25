@@ -52,7 +52,7 @@ func texts(lines []detailLine) []string {
 // included. Zero means no pane: either turned off, or the terminal is too
 // narrow to split without crushing the list.
 func (m *Model) detailPaneWidth() int {
-	if m.board.HideDetail || m.layout != layoutList || m.width < detailPaneFloor {
+	if m.sidebar || m.board.HideDetail || m.layout != layoutList || m.width < detailPaneFloor {
 		return 0
 	}
 	// The pane carries the full note, so it earns more room than the rows it
