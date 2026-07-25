@@ -52,6 +52,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = fmt.Sprintf("Herdr's spaces now follow the board (%d moved)", msg.moved)
 		return m, nil
 
+	case failureFetchedMsg:
+		return m, m.sendToAgent(msg.text)
+
 	case agentSentMsg:
 		m.status = "sent to " + msg.label
 		return m, m.focusAgentAndQuit(msg.pane)

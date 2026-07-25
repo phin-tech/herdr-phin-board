@@ -342,6 +342,7 @@ func (m *Model) viewHelp() string {
 		{"j / k", "move"},
 		{"gg / G", "first row · last row"},
 		{"gp", "open the pull request in a browser"},
+		{"gf", "send the failing check, with the end of its log, to that space's agent"},
 		{"h / l", "kanban: move between columns · list: collapse / expand"},
 		{"v", "grab a row, then move it — leaving its group changes its status"},
 		{"enter", "jump to space (reopens archived ones)"},

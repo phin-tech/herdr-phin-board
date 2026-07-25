@@ -102,6 +102,25 @@ selected space's PR in a browser.
 reorders anything — the same rule the agent hint follows. You drive status; this
 just tells you what GitHub thinks while you decide.
 
+`gf` takes the failing check further: it hands the agent in that space the
+check's name, the end of its log, and the link — typed into its input, unsent,
+like everything else here.
+
+```
+CI is failing on #123: build (and 1 other check)
+
+--- FAIL: TestBoardKeepsOrder (0.00s)
+    board_test.go:88: order = [b a], want [a b]
+FAIL	github.com/o/r/internal/board	0.312s
+
+https://github.com/o/r/actions/runs/1/job/2
+```
+
+The log comes from `gh run view --log-failed`, trimmed to the end of the failed
+step, with the timestamps, group markers and colour codes taken out. Checks
+outside Actions — CircleCI, Buildkite — have no log to fetch, so those send the
+name and the link, which is what you would have copied anyway.
+
 ## Talking to a space's agent
 
 `m` types a message into the agent running in the selected space and takes you
@@ -300,6 +319,7 @@ for itself, this is what you tell the board, and it is never overwritten.
 | `j` / `k` | move |
 | `gg` / `G` | first row · last row |
 | `gp` | open the pull request in a browser |
+| `gf` | send the failing check, and the end of its log, to that space's agent |
 | `h` / `l` | kanban: move between columns · list: collapse / expand a group |
 | `v` | grab the row, then move it — leaving its group changes its status |
 | `enter` | jump to the space (reopens archived ones at their old path) |

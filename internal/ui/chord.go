@@ -9,8 +9,8 @@ import (
 )
 
 // g is a chord prefix, vim style: gg jumps to the top, gp opens the pull
-// request. Bare g used to jump to the top on its own, which was never quite
-// vim and left no room for a second key.
+// request, gf hands its failing check to the agent. Bare g used to jump to the
+// top on its own, which was never quite vim and left no room for a second key.
 
 // openURL launches a URL in the user's browser. A variable so tests can
 // observe it without opening anything.
@@ -45,6 +45,8 @@ func (m *Model) handleChord(msg tea.KeyMsg) (bool, tea.Cmd) {
 			m.clampColumnCursor()
 		case "p":
 			return true, m.openPR()
+		case "f":
+			return true, m.sendFailure()
 		case "esc":
 			// Cancelled; nothing to do.
 		default:
@@ -57,7 +59,7 @@ func (m *Model) handleChord(msg tea.KeyMsg) (bool, tea.Cmd) {
 
 	if key == "g" {
 		m.chord = "g"
-		m.status = "g… gg top · gp open pull request"
+		m.status = "g… gg top · gp open pull request · gf send the failing check"
 		return true, nil
 	}
 	return false, nil
