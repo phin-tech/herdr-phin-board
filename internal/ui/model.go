@@ -721,6 +721,15 @@ func (m *Model) clampCursor() {
 }
 
 func (m *Model) listHeight() int {
+	if m.sidebar {
+		// No title or legend; one row is held back for an error or an input
+		// prompt so the list does not jump when one appears.
+		h := m.height - 1
+		if h < 3 {
+			h = 3
+		}
+		return h
+	}
 	h := m.height - 5 // title, blank, two footer lines, padding
 	if h < 3 {
 		h = 3

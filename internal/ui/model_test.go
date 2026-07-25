@@ -2520,3 +2520,46 @@ func TestPopupModelIsUnaffectedBySidebarMode(t *testing.T) {
 		t.Fatal("the popup should still cycle layouts")
 	}
 }
+
+// hoarder draws its own header above a docked pane, so the board's title row
+// would be a second one saying the same thing.
+func TestSidebarDropsTheTitleAndLegend(t *testing.T) {
+	m := newTestSidebarModel(t)
+	out := m.View()
+
+	if strings.Contains(out, m.title()) {
+		t.Fatalf("sidebar should not draw its own title row:\n%s", out)
+	}
+	if m.viewFooter() != "" {
+		t.Fatalf("sidebar should not draw the status legend, got %q", m.viewFooter())
+	}
+}
+
+// Suppressing the legend must not suppress what you are typing, or the input
+// modes become invisible.
+func TestSidebarStillShowsErrorsAndInput(t *testing.T) {
+	m := newTestSidebarModel(t)
+
+	m.err = errors.New("boom")
+	if got := m.viewFooter(); !strings.Contains(got, "boom") {
+		t.Fatalf("sidebar must still surface errors, got %q", got)
+	}
+
+	m.err = nil
+	m.mode = modeFilter
+	if got := m.viewFooter(); !strings.Contains(got, "filter:") {
+		t.Fatalf("sidebar must still show the input prompt, got %q", got)
+	}
+}
+
+// The rows freed by dropping the chrome go back to the list.
+func TestSidebarGivesFreedRowsToTheList(t *testing.T) {
+	sidebar := newTestSidebarModel(t)
+	popup := newTestModel(t)
+	popup.height = sidebar.height
+
+	if sidebar.listHeight() <= popup.listHeight() {
+		t.Fatalf("sidebar list (%d) should be taller than the popup's (%d) at the same height",
+			sidebar.listHeight(), popup.listHeight())
+	}
+}

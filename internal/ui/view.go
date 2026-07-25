@@ -55,8 +55,13 @@ func (m *Model) viewFrame() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(m.viewHeader())
-	b.WriteString("\n\n")
+	// A docked board sits under hoarder's own header, which already names the
+	// pane, and the status legend does not fit a dock's width. Both rows go
+	// back to the list.
+	if !m.sidebar {
+		b.WriteString(m.viewHeader())
+		b.WriteString("\n\n")
+	}
 
 	height := m.listHeight()
 	left := make([]string, height)
@@ -152,6 +157,13 @@ func (m *Model) viewFooter() string {
 		return keyStyle.Render(" to agent: ") + m.input.View()
 	case modeFilter:
 		return keyStyle.Render(" filter: ") + m.input.View()
+	}
+
+	// A dock is too narrow for the legend, and its rows are worth more as
+	// list. Errors and the input prompts above still render -- hiding those
+	// would leave you typing blind.
+	if m.sidebar {
+		return ""
 	}
 
 	// The numbered statuses are the fastest way to file something, so show the
