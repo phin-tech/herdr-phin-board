@@ -25,12 +25,35 @@ height = "85%"
 # has to be named absolutely via the injected plugin root.
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board"']
 
-# A narrow rendering for a docked region: the grouped list only, no detail
-# pane. Declared under [hoarder] because upstream Herdr rejects a manifest
-# naming a placement it does not know -- a plain [[panes]] entry with
-# placement = "sidebar-right" fails the whole manifest to parse there, taking
-# every action and hook with it. Upstream ignores unknown keys, so it simply
-# never sees this pane.
+[[actions]]
+id = "dock"
+title = "Dock Phin Board to the right"
+contexts = ["global", "workspace"]
+command = ["sh", "action-dock.sh"]
+
+# The narrow rendering -- the grouped list only, no detail pane -- as upstream
+# Herdr can have it: a tiled split, the closest thing it has to a right-hand
+# region and the only one it will accept. A manifest naming a placement it does
+# not know fails to parse there in full, taking every action and hook with it.
+#
+# No width: it is a popup-only field, and a split carrying one fails the
+# manifest the same way. Nor is there a field for which side the split lands
+# on, so action-dock.sh opens this with --direction right.
+#
+# The id differs from the hoarder pane below on purpose. Both entries are
+# visible to hoarder, and two panes sharing an id fails its manifest just as
+# hard -- for the whole plugin, actions included. They run the same `sidebar`
+# entrypoint either way.
+[[panes]]
+id = "side"
+title = "Board"
+placement = "split"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sidebar']
+
+# hoarder -- a fork of Herdr -- has a persistent right-hand dock, which is a
+# better home for this than a tiled split: it survives layout changes and does
+# not take a slot from the panes you are working in. Upstream silently ignores
+# unknown manifest keys, so it never sees this entry.
 [[hoarder.panes]]
 id = "sidebar"
 title = "Board"

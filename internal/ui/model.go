@@ -207,9 +207,9 @@ type Model struct {
 }
 
 // New builds the initial model.
-// NewSidebar builds a board for a narrow docked region: the grouped list
-// only, with no detail pane. Used by the `sidebar` entrypoint, which hoarder
-// opens with --placement sidebar-right.
+// NewSidebar builds a board for a narrow region down the side of the window:
+// the grouped list only, with no detail pane. Used by the `sidebar`
+// entrypoint -- hoarder's right-hand dock, or a split on upstream Herdr.
 func NewSidebar(client *herdr.Client, board *store.Board) *Model {
 	m := New(client, board)
 	m.sidebar = true

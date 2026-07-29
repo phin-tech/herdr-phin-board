@@ -89,12 +89,11 @@ func run(args []string) error {
 		case "sync":
 			return sync(client, board)
 		case "sidebar":
-			// Narrow docked rendering. Declared as its own pane entrypoint
-			// rather than sniffed from the environment, because the manifest
-			// cannot name a placement upstream Herdr does not know: a
-			// `placement = "sidebar-right"` entry fails the whole manifest to
-			// parse there, taking every action and hook with it. The caller
-			// supplies the placement at open time instead.
+			// Narrow rendering for a region down the right-hand side: hoarder's
+			// dock, or a tiled split on upstream Herdr. It is its own
+			// entrypoint rather than something sniffed from the environment,
+			// because the two runtimes reach it through different manifest
+			// entries and neither tells the process which one opened it.
 			sidebar = true
 		default:
 			return fmt.Errorf("unknown command %q (want: sync, sidebar, watch, startup, config, version, prune)", args[0])
@@ -106,9 +105,10 @@ func run(args []string) error {
 	// means there is nothing to set up; the lock means there is only ever one.
 	spawnWatcher()
 
-	// Mouse reporting drives the view switcher in the title bar. It also takes
-	// over drag-to-select inside the popup; most terminals still allow it with
-	// shift held.
+	// Mouse reporting drives the view switcher, the wheel, and clicking a row
+	// or a group header -- which is the whole interaction model in a dock,
+	// where the pointer is already on the screen. It also takes over
+	// drag-to-select; most terminals still allow it with shift held.
 	model := ui.New(client, board)
 	if sidebar {
 		model = ui.NewSidebar(client, board)
