@@ -36,6 +36,11 @@ func (m *Model) title() string {
 
 // titleHit reports whether a click landed on the title.
 func (m *Model) titleHit(x, y int) bool {
+	// A docked board draws no title, so row 0 there is the first list row --
+	// clicking it must not open a switcher for views a dock cannot show.
+	if m.sidebar {
+		return false
+	}
 	if y != menuRow {
 		return false
 	}

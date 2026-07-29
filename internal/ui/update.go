@@ -89,6 +89,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleMouse drives the title dropdown and lets a click land on a row.
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	// The wheel scrolls the list rather than moving the cursor: the cursor is
+	// what the keys act on, and having a look further down the board should not
+	// change what `1` or `enter` would do.
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.scroll(-wheelStep)
+		return m, nil
+	case tea.MouseButtonWheelDown:
+		m.scroll(wheelStep)
+		return m, nil
+	}
+
 	if msg.Action != tea.MouseActionPress || msg.Button != tea.MouseButtonLeft {
 		return m, nil
 	}
@@ -119,27 +131,89 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	m.clickRow(msg.Y)
-	return m, nil
+	return m.clickRow(msg.Y)
 }
 
-// clickRow moves the cursor to whatever row was clicked, when the layout has
-// an unambiguous vertical mapping. Kanban is left alone: its cards vary in
-// height, so a row number does not identify one.
-func (m *Model) clickRow(y int) {
+// wheelStep is how far one notch of the wheel moves the list.
+const wheelStep = 3
+
+// scroll moves the viewport without moving the cursor, clamped so the list
+// cannot be scrolled past its own ends.
+func (m *Model) scroll(delta int) {
 	if m.mode != modeNormal || m.layout == layoutKanban {
 		return
 	}
-	first := 2 // header plus the blank line under it
-	if m.layout == layoutTable {
-		first = 2 // header, then the column headings
+	last := max0(m.cursorLimit() - m.listHeight())
+	m.offset += delta
+	if m.offset > last {
+		m.offset = last
 	}
-	i := m.offset + (y - first)
+	if m.offset < 0 {
+		m.offset = 0
+	}
+}
+
+// firstRow is the terminal row the list starts on. A docked board draws no
+// title, so its list starts at the top of the pane.
+func (m *Model) firstRow() int {
+	if m.sidebar {
+		return 0
+	}
+	return 2 // the title, then the blank line under it
+}
+
+// clickRow acts on whatever row was clicked, when the layout has an
+// unambiguous vertical mapping. Kanban is left alone: its cards vary in
+// height, so a row number does not identify one.
+//
+// A click on a group's header folds it, the way the arrow it draws suggests.
+// What a click on a space does depends on which board it is; see spaceClick.
+func (m *Model) clickRow(y int) (tea.Model, tea.Cmd) {
+	if m.mode != modeNormal || m.layout == layoutKanban {
+		return m, nil
+	}
+	i := m.offset + (y - m.firstRow())
 	if i < 0 || i >= m.cursorLimit() {
-		return
+		return m, nil
 	}
+
+	already := i == m.cursor
 	m.cursor = i
 	m.clampCursor()
+
+	// The table is a flat list of spaces with no headers to fold.
+	if m.layout == layoutTable {
+		return m.spaceClick(already)
+	}
+
+	switch m.rows[i].kind {
+	case rowHeader:
+		m.board.ToggleCollapsed(m.rows[i].status.ID)
+		m.save()
+		m.rebuild()
+		m.clampCursor()
+	case rowSpace:
+		return m.spaceClick(already)
+	}
+	return m, nil
+}
+
+// spaceClick decides what clicking a space means, which is not the same on both
+// boards.
+//
+// In a dock, one click goes there. The dock is a strip you glance at on your
+// way somewhere, and jumping takes the focus out of the pane anyway -- so
+// selecting a row without going to it buys nothing, and asking for a second
+// click is a second click on every jump you make all day.
+//
+// The popup is where rows are worked on rather than travelled to: click a row,
+// then press 2, or n, or v. A click that jumped would close the whole board
+// under you, so there the second click is what activates.
+func (m *Model) spaceClick(already bool) (tea.Model, tea.Cmd) {
+	if m.sidebar || already {
+		return m.openSelected()
+	}
+	return m, nil
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -687,22 +761,24 @@ func (m *Model) openSelected() (tea.Model, tea.Cmd) {
 	client := m.client
 	key, label, id := sp.Key, sp.Label, sp.workspaceID()
 
+	focus := func() tea.Msg {
+		if id != "" {
+			_ = client.FocusWorkspace(id)
+		} else {
+			_, _ = client.CreateWorkspace(key, label)
+		}
+		return nil
+	}
+
+	// Every board closes on the way out, docked or not: you opened it to get
+	// somewhere, and once you are there it is a strip of screen showing you a
+	// board you are no longer reading. A key brings it straight back.
 	if m.cancel != nil {
 		m.cancel()
 	}
 	m.quitting = true
 
-	return m, tea.Sequence(
-		func() tea.Msg {
-			if id != "" {
-				_ = client.FocusWorkspace(id)
-			} else {
-				_, _ = client.CreateWorkspace(key, label)
-			}
-			return nil
-		},
-		tea.Quit,
-	)
+	return m, tea.Sequence(focus, tea.Quit)
 }
 
 // forgetSelected drops a space's stored status. Live spaces reappear

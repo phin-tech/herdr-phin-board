@@ -247,30 +247,85 @@ lose by accident.
 Requires Herdr 0.7.5+. Go is optional: without it the install falls back to a
 prebuilt macOS or Linux binary.
 
-## Docked mode (hoarder)
+## The board beside your panes
 
-[hoarder](https://github.com/phin-tech/herdr) — a fork of Herdr — can dock a
-plugin pane to the right edge of the window as a persistent, resizable region
-alongside your tiled panes. The board ships a second entrypoint for it:
+The board also renders narrow, for a region down the right-hand side of the
+window: the grouped list only, with no detail pane and no layout switching — a
+narrow board has no room for the table and kanban arrangements, and switching
+there would overwrite the layout the popup remembers.
+
+One action opens it on either runtime:
 
 ```sh
-hoarder dock phin-board sidebar
+herdr plugin action invoke dock --plugin phin-board
 ```
 
-That renders the grouped list only, with no detail pane and no layout
-switching — a dock is too narrow for the table and kanban arrangements, and
-switching there would overwrite the layout the popup remembers. The popup
-entrypoint is unchanged:
+or bind it, the same way as `open`:
+
+```toml
+[[keys.command]]
+key = "prefix+D"
+type = "plugin_action"
+command = "phin-board.dock"
+description = "Board on the right"
+```
+
+On upstream Herdr that is a tiled split to the right of the focused pane. On
+[hoarder](https://github.com/phin-tech/herdr) — a fork of Herdr — it goes into
+the real right-hand dock instead: a persistent, resizable region that survives
+layout changes and does not take a slot from the panes you are working in.
+
+`action-dock.sh` picks between them by *running* `dock` and falling back when
+it fails, rather than probing for it first. `herdr dock --help` on upstream
+prints the general help and exits 0 — `--help` short-circuits before the
+unknown command is reached — so a probe reports a dock that is not there. Its
+output is held back until it has worked, so upstream's "unknown command" never
+reaches the terminal.
+
+The split is then narrowed to a quarter of the window. A board this narrow is a
+strip you glance at, and a fresh split is an even one — half the window is far
+more than it needs. There is no width to ask for at open time: not a manifest
+field, and no flag on `plugin pane open`. Narrowing afterwards needs no
+measuring, though, since `--amount` is a fraction of the window and a new split
+is always half of it:
+
+```sh
+herdr pane resize --current --direction right --amount 0.25
+```
+
+The popup entrypoint is unchanged:
 
 ```sh
 herdr plugin pane open --plugin phin-board --entrypoint phin-board
 ```
 
-### Why it is a separate entrypoint
+### What the narrow rows show
 
-The docked pane is declared under `[[hoarder.panes]]` rather than `[[panes]]`:
+The popup's row spends 22 columns on a padded name whatever the width is, and
+gives the rest to a path. Neither survives down the side of a window, so the
+narrow row is built the other way round — the name takes what is left after the
+markers, and each thing beside it earns its room:
+
+| column | |
+|---|---|
+| name | always; everything else gives way to it |
+| note, else branch | what you are waiting on, or which worktree this is — only when there is enough room to read one |
+| `#123 ●✓` | the pull request, dropped first when the row runs out |
+| `◐ ◆ ✓ · ○` | the agent: working, blocked, done, idle, offline |
+
+A filter has no header to live in here, so it shows along the bottom instead.
+
+### Why there are two pane entries
+
+The narrow pane is declared twice, once for each runtime:
 
 ```toml
+[[panes]]
+id = "side"
+title = "Board"
+placement = "split"
+command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sidebar']
+
 [[hoarder.panes]]
 id = "sidebar"
 title = "Board"
@@ -278,11 +333,20 @@ placement = "sidebar-right"
 command = ["sh", "-c", 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-phin-board" sidebar']
 ```
 
-Upstream Herdr rejects a placement it does not know, and it fails the *entire*
-manifest when it does — every action and hook would go down with it. It does
-silently ignore unknown manifest keys, so everything under `[hoarder]` is
-invisible to it: on upstream Herdr this plugin has exactly the panes it always
-had, and on hoarder it gains the docked one. One manifest, both runtimes.
+Both run the same `sidebar` entrypoint. The split is upstream's closest thing
+to a right-hand region and the only one it will accept: a manifest naming a
+placement it does not know fails to parse there in *full*, taking every action
+and hook with it. Upstream silently ignores unknown keys, so everything under
+`[hoarder]` is invisible to it.
+
+Two details that also fail the whole manifest, and are easy to reintroduce:
+
+- **The ids must differ.** hoarder sees both entries, and two panes sharing an
+  id is as fatal there as an unknown placement.
+- **No `width` on the split.** It is a popup-only field.
+
+Which side the split lands on is not a manifest field either, which is why the
+action is a script rather than a plain `plugin pane open`.
 
 ## Status in the Spaces sidebar
 
@@ -374,6 +438,39 @@ for itself, this is what you tell the board, and it is never overwritten.
 | `x` | forget the selected space |
 | `r` | refresh |
 | `q` | quit |
+
+## Mouse
+
+The board takes the mouse, so Herdr never sees a click inside it — everything a
+pointer can do here, the board does itself.
+
+| | |
+|---|---|
+| wheel | scroll the list, leaving the cursor where it is |
+| click a group header | collapse or expand it |
+| click a PR or a check | open it in a browser |
+| click the title | open the view switcher (popup only) |
+| click a space | **docked:** go there · **popup:** select it |
+| click it again | popup: go there |
+
+Clicking a space does different things on the two boards on purpose. The dock
+is a strip you glance at on your way somewhere, so one click goes there —
+asking for a second would be a second click on every jump you make all day.
+
+The popup is where rows are worked on rather than travelled to: click a row,
+then press `2`, or `n`, or `v`. A click that jumped would close the whole board
+under you, so there the second click is what activates.
+
+Either board closes once you jump. You opened it to get somewhere, and once you
+are there it is a strip of screen showing you a board you have stopped reading.
+A key brings it straight back.
+
+Scrolling leaves the cursor alone either way: the cursor is what the keys act
+on, and having a look further down the board should not change what `1` or
+`enter` would do.
+
+Taking the mouse also takes drag-to-select; most terminals still allow it with
+shift held.
 
 ## Filtering and ordering
 

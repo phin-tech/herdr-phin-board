@@ -67,6 +67,10 @@ func (m *Model) viewFrame() string {
 	left := make([]string, height)
 	end := min(m.offset+height, len(m.rows))
 	for i := m.offset; i < end; i++ {
+		if m.sidebar {
+			left[i-m.offset] = m.renderNarrowRow(i)
+			continue
+		}
 		left[i-m.offset] = m.renderRow(i)
 	}
 
@@ -162,8 +166,25 @@ func (m *Model) viewFooter() string {
 	// A dock is too narrow for the legend, and its rows are worth more as
 	// list. Errors and the input prompts above still render -- hiding those
 	// would leave you typing blind.
+	//
+	// What does survive is anything changing which spaces the list is showing.
+	// A dock has no header to carry it, and a filter you cannot see is a board
+	// that looks like it has lost half your spaces.
 	if m.sidebar {
-		return ""
+		var parts []string
+		if st, ok := m.board.StatusByID(m.statusFilter); ok {
+			parts = append(parts, st.Label+" only")
+		}
+		if m.filter != "" {
+			parts = append(parts, "/"+m.filter)
+		}
+		if m.status != "" {
+			parts = append(parts, m.status)
+		}
+		if len(parts) == 0 {
+			return ""
+		}
+		return dimStyle.Render(" " + truncate(strings.Join(parts, " · "), m.width-2))
 	}
 
 	// The numbered statuses are the fastest way to file something, so show the
@@ -269,6 +290,155 @@ func (m *Model) renderRow(i int) string {
 	return joinEnds(line, dimStyle.Render(hint+" "), body)
 }
 
+// Narrow rows keep a name readable before anything else earns room, and hold a
+// column back on the right so nothing sits flush against the pane edge.
+const (
+	// A name near this length is the common case, so the pull request only
+	// earns its place when the name would not have to give way for it.
+	narrowNameFloor = 16
+	narrowNoteFloor = 8
+	narrowMargin    = " "
+)
+
+// renderNarrowRow draws one row for a docked board.
+//
+// The popup's row does not survive a dock's width. It spends 22 columns on a
+// padded name whatever the width is, gives the remainder to a path that
+// truncates to nothing readable, and drops its right-aligned agent hint whole
+// the moment the two stop fitting -- so the narrower the pane, the less each
+// row said. Here the name takes what is left after a one-glyph agent marker,
+// and the note -- the reason a row is on the board at all -- takes any room
+// after that.
+func (m *Model) renderNarrowRow(i int) string {
+	r := m.rows[i]
+	selected := i == m.cursor
+	width := m.rowWidth()
+
+	switch r.kind {
+	case rowEmpty:
+		return dimStyle.Render(truncate("  no spaces yet", width))
+
+	case rowHeader:
+		arrow := "▾"
+		if m.board.IsCollapsed(r.status.ID) && m.filter == "" {
+			arrow = "▸"
+		}
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(r.status.Color)).Bold(true)
+		// The cursor colours the arrow rather than taking a column of its own.
+		// The popup prepends a ❯, which lands hard against the arrow -- legible
+		// at 100 columns, but in a dock it is two glyphs of chrome where the
+		// label wanted the room.
+		marker := style
+		if selected {
+			marker = cursorStyle
+		}
+		head := " " + marker.Render(arrow) + " " + style.Render(r.status.Label)
+		count := dimStyle.Render(fmt.Sprintf("%d", r.count)) + narrowMargin
+		return truncateStyled(joinEnds(head, count, width), width)
+	}
+
+	sp := r.space
+	held := sp.Key == m.grabbed
+
+	prefix := "  "
+	switch {
+	case held:
+		prefix = grabStyle.Render(" ▌")
+	case selected:
+		prefix = cursorStyle.Render(" ❯")
+	}
+
+	// nameRoom is what the name is left with once a given right-hand cluster is
+	// placed: the prefix, a space, the cluster and one column of gap.
+	nameRoom := func(right string) int {
+		return width - lipgloss.Width(prefix) - 1 - lipgloss.Width(right) - lipgloss.Width(narrowMargin) - 1
+	}
+
+	// The right cluster is built in order of how much it matters, and gives way
+	// from the least important end as the row runs out -- so a narrow dock keeps
+	// the alert and the agent glyph and drops the pull request, rather than
+	// losing the lot the way the popup row does when its two columns stop
+	// fitting.
+	agent := agentGlyph(sp)
+	bell := m.bellFor(sp.Key)
+	right := joinMarks(bell, agent)
+	if pr, ok := m.prFor(sp.Key); ok {
+		if full := joinMarks(bell, prShort(pr), agent); nameRoom(full) >= narrowNameFloor {
+			right = full
+		}
+	}
+	if nameRoom(right) < narrowNameFloor {
+		right = agent
+	}
+
+	room := nameRoom(right)
+	if room < 4 {
+		room = 4
+	}
+
+	nameStyled := labelStyle
+	switch {
+	case held:
+		nameStyled = grabStyle
+	case !sp.Live:
+		nameStyled = archivedStyle
+	case sp.Focused:
+		nameStyled = focusStyle
+	}
+
+	name := truncate(sp.Label, room)
+	left := prefix + " " + nameStyled.Render(name)
+
+	// The room a name leaves goes to the note -- what you are waiting on is the
+	// whole point of the status it is filed under. With no note the branch takes
+	// it, which beats the popup's abbreviated path: a dock has no width for a
+	// path, and the branch is what tells two worktrees of one repo apart.
+	//
+	// Neither is worth a stub. Below the floor the row stays a clean name rather
+	// than three columns of a word.
+	if rest := room - lipgloss.Width(name) - 1; rest >= narrowNoteFloor {
+		switch {
+		case sp.Note != "":
+			left += " " + noteStyle.Render(truncate(sp.Note, rest))
+		case m.branchFor(sp.Key) != "":
+			left += " " + branchStyle.Render(truncate(m.branchFor(sp.Key), rest))
+		}
+	}
+
+	return truncateStyled(joinEnds(left, right+narrowMargin, width), width)
+}
+
+// joinMarks spaces out the right-hand markers, skipping the ones that are not
+// there so a missing alert does not leave a hole.
+func joinMarks(marks ...string) string {
+	var out []string
+	for _, s := range marks {
+		if strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// agentGlyph is agentHint compressed to a single column. A dock cannot spend
+// eight columns of every row on "·working", but the state is worth a mark.
+func agentGlyph(sp *space) string {
+	if !sp.Live {
+		return dimStyle.Render("○")
+	}
+	switch sp.AgentStatus {
+	case "working":
+		return prPendingStyle.Render("◐")
+	case "blocked":
+		return prFailStyle.Render("◆")
+	case "done":
+		return prPassStyle.Render("✓")
+	case "idle":
+		return dimStyle.Render("·")
+	}
+	return ""
+}
+
 // agentHint is the dim secondary signal. It never groups or sorts anything --
 // the board tracks the user's own work, not the agent's.
 func agentHint(sp *space) string {
@@ -346,42 +516,113 @@ func (m *Model) viewManage() string {
 	return b.String()
 }
 
+// helpRow is one key and what it does, in a long form and a short one. The
+// short form is not the long one truncated: a clipped sentence loses its verb
+// and says nothing, so the narrow board gets phrasing written for it.
+type helpRow struct {
+	key, long, short string
+	// wide marks a key that only does something on a board wide enough for the
+	// arrangements it switches between. Listing those in a dock, where they are
+	// deliberately inert, spends its scarcest rows on things that will not
+	// happen.
+	wide bool
+}
+
+var helpRows = []helpRow{
+	{key: "K", long: "cycle the view: list → table → kanban", wide: true},
+	{key: "o", long: "table only: sort by status, name, or when it last changed", wide: true},
+	{key: "d", long: "list: show or hide the detail pane · elsewhere: detail modal", wide: true},
+	{key: "j / k", long: "move", short: "move"},
+	{key: "gg / G", long: "first row · last row", short: "first · last"},
+	{key: "gp", long: "open the pull request in a browser", short: "open the PR"},
+	{key: "gf", long: "send the failing check, with the end of its log, to that space's agent", short: "send the failure"},
+	{key: "h / l", long: "kanban: move between columns · list: collapse / expand", short: "fold · unfold"},
+	{key: "v", long: "grab a row, then move it — leaving its group changes its status", short: "grab and move"},
+	{key: "enter", long: "jump to space (reopens archived ones)", short: "jump to space"},
+	{key: "1-9", long: "send to that status, numbered along the bottom", short: "set status"},
+	{key: "s", long: "status picker", short: "status picker"},
+	{key: "n", long: "edit note — who or what you are waiting on", short: "edit note"},
+	{key: "R", long: "rename the space — renames the Herdr workspace too", short: "rename space"},
+	{key: "m", long: "type a message into that space's agent, then go there to send it", short: "message agent"},
+	{key: "space", long: "collapse / expand group", short: "fold group"},
+	{key: "F", long: "show only the status under the cursor — F or esc for all", short: "this status only"},
+	{key: "O", long: "reorder Herdr's own Spaces sidebar to match this board", short: "reorder Spaces"},
+	{key: "a", long: "show or hide archived spaces", short: "archived"},
+	{key: "/", long: "filter by name, path or note", short: "filter"},
+	{key: "S", long: "manage statuses (add, rename, reorder, delete)", short: "statuses"},
+	{key: "x", long: "forget the selected space", short: "forget space"},
+	{key: "r", long: "refresh", short: "refresh"},
+	{key: "q", long: "quit", short: "quit"},
+}
+
+// helpKeyColumn is how much room the keys get. "gg / G" is the longest, and in
+// a dock the description needs every column the keys do not.
+const (
+	helpKeyColumn       = 10
+	helpKeyColumnNarrow = 7
+	// helpNarrowUnder is the width below which the help changes shape rather
+	// than just clipping.
+	helpNarrowUnder = 56
+)
+
 func (m *Model) viewHelp() string {
-	rows := [][2]string{
-		{"K", "cycle the view: list → table → kanban"},
-		{"o", "table only: sort by status, name, or when it last changed"},
-		{"d", "list: show or hide the detail pane · elsewhere: detail modal"},
-		{"j / k", "move"},
-		{"gg / G", "first row · last row"},
-		{"gp", "open the pull request in a browser"},
-		{"gf", "send the failing check, with the end of its log, to that space's agent"},
-		{"h / l", "kanban: move between columns · list: collapse / expand"},
-		{"v", "grab a row, then move it — leaving its group changes its status"},
-		{"enter", "jump to space (reopens archived ones)"},
-		{"1-9", "send to that status, numbered along the bottom"},
-		{"s", "status picker"},
-		{"n", "edit note — who or what you are waiting on"},
-		{"R", "rename the space — renames the Herdr workspace too"},
-		{"m", "type a message into that space's agent, then go there to send it"},
-		{"space", "collapse / expand group"},
-		{"F", "show only the status under the cursor — F or esc for all"},
-		{"O", "reorder Herdr's own Spaces sidebar to match this board"},
-		{"a", "show or hide archived spaces"},
-		{"/", "filter by name, path or note"},
-		{"S", "manage statuses (add, rename, reorder, delete)"},
-		{"x", "forget the selected space"},
-		{"r", "refresh"},
-		{"q", "quit"},
+	narrow := m.width < helpNarrowUnder
+
+	indent, keyCol := "   ", helpKeyColumn
+	if narrow {
+		indent, keyCol = " ", helpKeyColumnNarrow
+	}
+	room := m.width - lipgloss.Width(indent) - keyCol - 1
+
+	lines := []string{titleStyle.Render(" Board"), ""}
+	for _, r := range helpRows {
+		text := r.long
+		if narrow {
+			// A key that does nothing here is not worth a row.
+			if r.wide {
+				continue
+			}
+			text = r.short
+		}
+		lines = append(lines, indent+keyStyle.Render(pad(r.key, keyCol))+
+			dimStyle.Render(truncate(text, room)))
 	}
 
-	var b strings.Builder
-	b.WriteString(titleStyle.Render(" Board") + "\n\n")
-	for _, r := range rows {
-		b.WriteString("   " + keyStyle.Render(pad(r[0], 10)) + dimStyle.Render(r[1]) + "\n")
+	// The closing notes are the first thing to go: they explain the board
+	// rather than drive it, and a dock has no rows to spare for prose.
+	//
+	// They are dropped whole rather than truncated, note by note: a clipped
+	// sentence of prose is worse than no sentence, having taken a row to say
+	// nothing.
+	if !narrow {
+		notes := []string{
+			"   status is yours; the dim right column is Herdr's agent state",
+			"   mouse: wheel scrolls · click selects · click again jumps · click a header folds",
+			"   docked, one click jumps — and the board closes behind you either way",
+		}
+		var fit []string
+		for _, n := range notes {
+			if lipgloss.Width(n) <= m.width {
+				fit = append(fit, dimStyle.Render(n))
+			}
+		}
+		if len(fit) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, fit...)
+		}
 	}
-	b.WriteString("\n" + dimStyle.Render("   status is yours; the dim right column is Herdr's agent state\n"))
-	b.WriteString("\n" + dimStyle.Render(" any key to go back"))
-	return b.String()
+
+	// Clip rather than overflow. A help taller than the pane scrolls its own
+	// first rows into the scrollback -- which is exactly where the keys you
+	// opened it for have gone, since the list starts at the top.
+	footer := dimStyle.Render(" " + truncate("any key to go back", max0(m.width-2)))
+	if room := m.height - 2; room > 1 && len(lines) > room {
+		lines = lines[:room-1]
+		lines = append(lines, dimStyle.Render(indent+"…"))
+	}
+
+	lines = append(lines, "", footer)
+	return strings.Join(lines, "\n")
 }
 
 // --- text helpers ---

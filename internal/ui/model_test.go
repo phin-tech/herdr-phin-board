@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"fmt"
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/phin-tech/herdr-phin-board/internal/gh"
 	"strings"
 	"testing"
@@ -2549,6 +2551,402 @@ func TestSidebarStillShowsErrorsAndInput(t *testing.T) {
 	m.mode = modeFilter
 	if got := m.viewFooter(); !strings.Contains(got, "filter:") {
 		t.Fatalf("sidebar must still show the input prompt, got %q", got)
+	}
+}
+
+// narrowRowFor renders the row for one space in a docked board.
+func narrowRowFor(t *testing.T, m *Model, key string) string {
+	t.Helper()
+	for i, r := range m.rows {
+		if r.kind == rowSpace && r.space.Key == key {
+			return m.renderNarrowRow(i)
+		}
+	}
+	t.Fatalf("no row for %q", key)
+	return ""
+}
+
+// The whole point of a docked row: whatever the width, it stays inside it. The
+// popup row does not -- its name column is 22 wide come what may, and its
+// right-aligned hint is dropped rather than made to fit.
+func TestNarrowRowsStayInsideTheirWidth(t *testing.T) {
+	for _, width := range []int{60, 40, 30, 24, 18} {
+		m := newTestSidebarModel(t)
+		m.width = width
+		send(t, m, liveWorkspaces())
+
+		for i := range m.rows {
+			line := m.renderNarrowRow(i)
+			if got := lipgloss.Width(line); got > width {
+				t.Fatalf("at width %d a row is %d wide: %q", width, got, line)
+			}
+		}
+	}
+}
+
+// A name is the one thing a row cannot be without, so it survives widths that
+// leave no room for anything else.
+func TestNarrowRowsKeepTheNameWhenNothingElseFits(t *testing.T) {
+	m := newTestSidebarModel(t)
+	m.width = 18
+	send(t, m, liveWorkspaces())
+
+	if got := narrowRowFor(t, m, "/tmp/api"); !strings.Contains(got, "api") {
+		t.Fatalf("narrow row dropped the name: %q", got)
+	}
+}
+
+// The note is why a space is filed where it is, so it takes the room the name
+// leaves. The popup spends that room on a path instead, which at dock widths
+// truncates to nothing worth reading.
+func TestNarrowRowsShowTheNoteBeforeTheBranch(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+	m.branches["/tmp/api"] = "feature-x"
+	m.board.SetNote("/tmp/api", "waiting on review")
+	m.rebuild()
+
+	got := narrowRowFor(t, m, "/tmp/api")
+	if !strings.Contains(got, "waiting on review") {
+		t.Fatalf("narrow row dropped the note: %q", got)
+	}
+	if strings.Contains(got, "feature-x") {
+		t.Fatalf("the branch should give way to the note: %q", got)
+	}
+}
+
+// With no note, the branch is the useful thing to fill that room with: it is
+// what tells two worktrees of one repo apart.
+func TestNarrowRowsFallBackToTheBranch(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+	m.branches["/tmp/api"] = "feature-x"
+	m.rebuild()
+
+	if got := narrowRowFor(t, m, "/tmp/api"); !strings.Contains(got, "feature-x") {
+		t.Fatalf("narrow row should show the branch when there is no note: %q", got)
+	}
+}
+
+// A pull request is worth a mark while there is room for one, and worth less
+// than the name once there is not.
+func TestNarrowRowsDropThePullRequestBeforeTheName(t *testing.T) {
+	wide := newTestSidebarModel(t)
+	wide.width = 60
+	send(t, wide, liveWorkspaces())
+	wide.prCache.Put("/tmp/api", gh.PR{Number: 123, State: "OPEN"})
+	wide.rebuild()
+
+	if got := narrowRowFor(t, wide, "/tmp/api"); !strings.Contains(got, "#123") {
+		t.Fatalf("a wide dock has room for the PR: %q", got)
+	}
+
+	narrow := newTestSidebarModel(t)
+	narrow.width = 20
+	send(t, narrow, liveWorkspaces())
+	narrow.prCache.Put("/tmp/api", gh.PR{Number: 123, State: "OPEN"})
+	narrow.rebuild()
+
+	got := narrowRowFor(t, narrow, "/tmp/api")
+	if strings.Contains(got, "#123") {
+		t.Fatalf("a narrow dock should drop the PR: %q", got)
+	}
+	if !strings.Contains(got, "api") {
+		t.Fatalf("dropping the PR must not cost the name: %q", got)
+	}
+}
+
+// A dock has no header to say the list is filtered, so a filter that is not in
+// the footer is a board that looks like it has lost half your spaces.
+func TestSidebarFooterNamesTheActiveFilter(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	m.filter = "api"
+	if got := m.viewFooter(); !strings.Contains(got, "/api") {
+		t.Fatalf("sidebar footer should name the filter, got %q", got)
+	}
+
+	m.filter = ""
+	m.statusFilter = "waiting"
+	if got := m.viewFooter(); !strings.Contains(got, "Waiting only") {
+		t.Fatalf("sidebar footer should name the status filter, got %q", got)
+	}
+}
+
+func wheel(down bool) tea.MouseMsg {
+	b := tea.MouseButtonWheelUp
+	if down {
+		b = tea.MouseButtonWheelDown
+	}
+	return tea.MouseMsg{Action: tea.MouseActionPress, Button: b}
+}
+
+// rowIndexOf is where a space sits among the rendered rows.
+func rowIndexOf(t *testing.T, m *Model, key string) int {
+	t.Helper()
+	for i, r := range m.rows {
+		if r.kind == rowSpace && r.space.Key == key {
+			return i
+		}
+	}
+	t.Fatalf("no row for %q", key)
+	return 0
+}
+
+// A docked board has no title row above the list, so a click lands two rows
+// off if the popup's offset is assumed.
+func TestSidebarClickLandsOnTheRowUnderThePointer(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	want := rowIndexOf(t, m, "/tmp/web")
+	send(t, m, click(4, want-m.offset))
+
+	if m.cursor != want {
+		t.Fatalf("click selected row %d, want %d", m.cursor, want)
+	}
+}
+
+// Row 0 of a dock is a list row, not the view switcher -- and a dock cannot
+// show the views that switcher offers anyway.
+func TestSidebarClickOnTopRowDoesNotOpenTheMenu(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	send(t, m, click(menuIndent+1, menuRow))
+
+	if m.menuOpen {
+		t.Fatal("a docked board should have no view switcher to open")
+	}
+}
+
+// The wheel is for having a look further down. The cursor is what the keys act
+// on, so scrolling must not change what enter or 1-9 would do.
+func TestWheelScrollsWithoutMovingTheCursor(t *testing.T) {
+	m := newTestSidebarModel(t)
+	m.height = 8
+
+	var many workspacesMsg
+	for i := 0; i < 12; i++ {
+		many = append(many, herdr.Workspace{
+			ID:    fmt.Sprintf("x%d", i),
+			Label: fmt.Sprintf("s%d", i),
+			Cwd:   fmt.Sprintf("/tmp/s%d", i),
+		})
+	}
+	send(t, m, many)
+
+	cursor := m.cursor
+	send(t, m, wheel(true))
+
+	if m.offset == 0 {
+		t.Fatal("the wheel did not scroll the list")
+	}
+	if m.cursor != cursor {
+		t.Fatalf("the wheel moved the cursor from %d to %d", cursor, m.cursor)
+	}
+}
+
+// Scrolling stops at the ends rather than running off into blank space.
+func TestWheelStopsAtTheEnds(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	for i := 0; i < 20; i++ {
+		send(t, m, wheel(true))
+	}
+	if m.offset > max0(m.cursorLimit()-m.listHeight()) {
+		t.Fatalf("scrolled past the end: offset %d", m.offset)
+	}
+
+	for i := 0; i < 20; i++ {
+		send(t, m, wheel(false))
+	}
+	if m.offset != 0 {
+		t.Fatalf("scrolled past the start: offset %d", m.offset)
+	}
+}
+
+// The arrow a header draws says it folds; clicking it should fold it.
+func TestClickingAGroupHeaderFoldsIt(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	var header int
+	for i, r := range m.rows {
+		if r.kind == rowHeader && r.count > 0 {
+			header = i
+			break
+		}
+	}
+	status := m.rows[header].status.ID
+	before := m.board.IsCollapsed(status)
+
+	send(t, m, click(2, header-m.offset))
+
+	if m.board.IsCollapsed(status) == before {
+		t.Fatalf("clicking the header did not fold %q", status)
+	}
+}
+
+// A dock is a strip you glance at on the way somewhere, and jumping takes the
+// focus out of it regardless -- so one click goes, rather than asking for a
+// second one on every jump.
+func TestSidebarClickOnASpaceGoesThere(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	row := rowIndexOf(t, m, "/tmp/web")
+	send(t, m, click(4, row-m.offset))
+
+	if m.cursor != row {
+		t.Fatalf("cursor is %d, want %d", m.cursor, row)
+	}
+	if !m.quitting {
+		t.Fatal("one click on a space should have jumped to it")
+	}
+}
+
+// A header is not a space: clicking one folds the group and must not jump.
+func TestSidebarClickOnAHeaderDoesNotJump(t *testing.T) {
+	m := newTestSidebarModel(t)
+	send(t, m, liveWorkspaces())
+
+	var header int
+	for i, r := range m.rows {
+		if r.kind == rowHeader {
+			header = i
+			break
+		}
+	}
+	send(t, m, click(2, header-m.offset))
+
+	if m.quitting {
+		t.Fatal("clicking a header should fold the group, not jump")
+	}
+}
+
+// The popup is where rows are worked on rather than travelled to, and a click
+// that jumped would close the board under you. There the second click acts.
+func TestPopupNeedsASecondClickToJump(t *testing.T) {
+	m := newTestModel(t)
+	send(t, m, liveWorkspaces())
+
+	row := rowIndexOf(t, m, "/tmp/web")
+	send(t, m, click(4, row+m.firstRow()-m.offset))
+
+	if m.cursor != row {
+		t.Fatalf("cursor is %d, want %d", m.cursor, row)
+	}
+	if m.quitting {
+		t.Fatal("the popup should not close on the first click")
+	}
+}
+
+// Every board closes on the way out: once you are in the space, the board is a
+// strip of screen showing you something you are no longer reading.
+func TestBoardClosesAfterAJump(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    func(*testing.T) *Model
+	}{
+		{"docked", newTestSidebarModel},
+		{"popup", newTestModel},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := tc.m(t)
+			send(t, m, liveWorkspaces())
+			selectSpace(t, m, "/tmp/web")
+
+			m.openSelected()
+
+			if !m.quitting {
+				t.Fatal("the board should close when you jump to a space")
+			}
+		})
+	}
+}
+
+// helpLines is the help as rendered, split into rows.
+func helpLines(m *Model) []string {
+	return strings.Split(m.viewHelp(), "\n")
+}
+
+// A help screen wider than the pane is a help screen you cannot read.
+func TestHelpFitsItsWidth(t *testing.T) {
+	for _, width := range []int{100, 56, 38, 28, 20} {
+		m := newTestSidebarModel(t)
+		m.width, m.height = width, 40
+		m.mode = modeHelp
+
+		for _, l := range helpLines(m) {
+			if got := lipgloss.Width(l); got > width {
+				t.Fatalf("at width %d a help line is %d wide: %q", width, got, l)
+			}
+		}
+	}
+}
+
+// A help taller than the pane scrolls its own first rows into the scrollback,
+// which is where the keys you opened it for have gone.
+func TestHelpFitsItsHeight(t *testing.T) {
+	for _, height := range []int{40, 20, 14, 8} {
+		m := newTestSidebarModel(t)
+		m.width, m.height = 28, height
+		m.mode = modeHelp
+
+		if got := len(helpLines(m)); got > height {
+			t.Fatalf("at height %d the help is %d lines", height, got)
+		}
+	}
+}
+
+// However far it has to be cut, the way out stays on screen.
+func TestHelpAlwaysShowsTheWayOut(t *testing.T) {
+	m := newTestSidebarModel(t)
+	m.width, m.height = 28, 8
+	m.mode = modeHelp
+
+	lines := helpLines(m)
+	if !strings.Contains(lines[len(lines)-1], "any key to go back") {
+		t.Fatalf("the last help line is %q", lines[len(lines)-1])
+	}
+}
+
+// A narrow help is not a wide one clipped: a truncated sentence loses its verb
+// and stops saying anything.
+func TestNarrowHelpUsesItsOwnPhrasing(t *testing.T) {
+	m := newTestSidebarModel(t)
+	m.width, m.height = 28, 40
+	m.mode = modeHelp
+	out := m.viewHelp()
+
+	if !strings.Contains(out, "set status") {
+		t.Fatalf("narrow help should use the short phrasing:\n%s", out)
+	}
+	if strings.Contains(out, "numbered along the bottom") {
+		t.Fatalf("narrow help should not carry the long phrasing:\n%s", out)
+	}
+}
+
+// Layout switching is deliberately inert in a dock, so listing those keys
+// spends its scarcest rows on things that cannot happen.
+func TestNarrowHelpDropsTheKeysThatDoNothingThere(t *testing.T) {
+	m := newTestSidebarModel(t)
+	m.width, m.height = 28, 40
+	m.mode = modeHelp
+
+	for _, line := range helpLines(m) {
+		if strings.Contains(line, "cycle the view") || strings.Contains(line, "kanban") {
+			t.Fatalf("a docked help should not offer layout switching: %q", line)
+		}
+	}
+
+	wide := newTestModel(t)
+	wide.mode = modeHelp
+	if !strings.Contains(wide.viewHelp(), "cycle the view") {
+		t.Fatal("the popup help should still list the view keys")
 	}
 }
 
